@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>PostgreSQL Query Generator (Gemini)</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="fineTuningSection">
+        <h3>Model Training</h3>
+        <input type="file" id="datasetUpload" accept=".json" />
+        <button id="uploadBtn">Train Model</button>
+        <div id="uploadStatus"></div>
+        <div id="trainingStats">
+            Examples loaded: <span id="exampleCount">0</span>
+            | Last trained: <span id="lastTrained">Never</span>
+        </div>
+    </div>
+
+    <h2>PostgreSQL Query Generator (Gemini)</h2>
+    <div id="chatBox"></div>
+    <input type="text" id="userInput" placeholder="Ask for a SQL Query..." />
+    <button id="sendButton">Send</button>
+    <canvas id="chart" style="display:none;"></canvas>
+
+    <script src="script.js"></script>
+</body>
+</html>
