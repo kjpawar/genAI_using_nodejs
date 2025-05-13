@@ -119,8 +119,7 @@ app.post('/upload-dataset', upload.single('file'), async (req, res) => {
       await fs.remove(req.file.path);
       return res.json({ 
         status: "exists",
-        message: "Dataset already exists. Use force=true to override",
-        can_force: true 
+        message: "Dataset already exists." 
       });
     }
 
