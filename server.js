@@ -261,7 +261,7 @@ async function cleanupOldUploads(days = 1) {
   await fs.ensureDir('training_examples');
   await cleanupOldUploads();
 
-  const PORT = process.env.PORT || 8000;
+  const PORT = process.env.PORT;
   app.listen(PORT, () => {
     console.log(`Server running on http://localhost:${PORT}`);
   });
