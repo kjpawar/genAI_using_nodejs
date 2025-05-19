@@ -1,11 +1,13 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <title>PostgreSQL Query Generator (Gemini)</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link rel="stylesheet" href="style.css">
 </head>
+
 <body>
     <div id="fineTuningSection">
         <h3>Model Training</h3>
@@ -18,6 +20,15 @@
         </div>
     </div>
 
+    <hr>
+    <!-- Add this section below the training section -->
+    <div id="documentSection">
+        <h3>Document Upload</h3>
+        <input type="file" id="documentUpload" accept=".pdf,.doc,.docx,.txt,.ppt,.pptx" />
+        <button id="uploadDocumentBtn">Upload Document</button>
+        <div id="documentUploadStatus"></div>
+    </div>
+
     <h2>PostgreSQL Query Generator (Gemini)</h2>
     <div id="chatBox"></div>
     <input type="text" id="userInput" placeholder="Ask for a SQL Query..." />
@@ -26,4 +37,5 @@
 
     <script src="script.js"></script>
 </body>
+
 </html>
