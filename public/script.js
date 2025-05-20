@@ -123,17 +123,32 @@ sendButton.addEventListener('click', async () => {
             chatBox.innerHTML += `<div style="color:red;"><b>Error:</b> ${data.human_answer}</div>`;
         } else {
             // Handle document responses
-            if (data.document_info) {
-                chatBox.innerHTML += `
-                <div class="document-response">
-                   <b>Meeting Minutes (${data.document_info.date}):</b>
-                   <div class="document-content">${data.human_answer}</div>
-                   <div class="document-meta">
-                      Source: ${data.document_info.name}
-                   </div>
-                </div>
-                 `;
-            } 
+            // if (data.document_info) {
+            //     chatBox.innerHTML += `
+            //     <div class="document-response">
+            //        <b>Meeting Minutes (${data.document_info.date}):</b>
+            //        <div class="document-content">${data.human_answer}</div>
+            //        <div class="document-meta">
+            //           Source: ${data.document_info.name}
+            //        </div>
+            //     </div>
+            //      `;
+            // } 
+            // In your sendButton event listener, modify the document response handling:
+if (data.document_info) {
+  // Clean up the response to remove unwanted formatting
+  let cleanAnswer = data.human_answer
+    .replace(/###\s*"\d+\.\s*[^"]+":/g, '') // Remove section headers
+    .replace(/"/g, '') // Remove quotation marks
+    .trim();
+  
+  chatBox.innerHTML += `
+    <div class="document-response">
+      <b>${data.document_info.project} (${data.document_info.date}):</b>
+      <div class="document-content">${cleanAnswer}</div>
+    </div>
+  `;
+}
             // Handle chart responses
             else if (data.chart_data) {
                 chatBox.innerHTML += `<div><b>Chart Data JSON:</b> <code>${JSON.stringify(data.chart_data, null, 2)}</code></div>`;

@@ -125,20 +125,35 @@ app.post("/chat", async (req, res) => {
         const docDate = docDateMatch ? docDateMatch[0] : "unknown date";
 
         // Analyze with Gemini
-        const prompt = `
-          Meeting Minutes Document: ${document.name}
-          Content URL: ${document.url}
+        // const prompt = `
+        //   Meeting Minutes Document: ${document.name}
+        //   Content URL: ${document.url}
           
-          User Question: "${userPrompt}"
+        //   User Question: "${userPrompt}"
           
-          Please provide:
-          1. Key decisions made
-          2. Action items assigned
-          3. Next steps planned
+        //   Please provide:
+        //   1. Key decisions made
+        //   2. Action items assigned
+        //   3. Next steps planned
           
-          Format as bullet points with clear headings.
-          Include dates mentioned where relevant.
-        `;
+        //   Format as bullet points with clear headings.
+        //   Include dates mentioned where relevant.
+        // `;
+        // Modify the prompt in your /chat endpoint's document handling section
+const prompt = `
+  Meeting Minutes Document: ${document.name}
+  Content URL: ${document.url}
+  
+  User Question: "${userPrompt}"
+  
+  Provide ONLY the exact information requested in the question.
+  Do not include any additional summaries or sections.
+  Be concise and directly answer the question.
+  
+  If the question is about attendees, list ONLY the names and roles.
+  If about decisions, list ONLY the specific decisions.
+  Format as simple bullet points if appropriate.
+`;
 
         const genResult = await model.generateContent(prompt);
         const response = await genResult.response;
