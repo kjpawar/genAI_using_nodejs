@@ -5,6 +5,10 @@
     <meta charset="UTF-8">
     <title>PostgreSQL Query Generator (Gemini)</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.0.0"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels"></script>
+
+    
     <link rel="stylesheet" href="style.css">
 </head>
 
@@ -33,7 +37,13 @@
     <div id="chatBox"></div>
     <input type="text" id="userInput" placeholder="Ask for a SQL Query..." />
     <button id="sendButton">Send</button>
-    <canvas id="chart" style="display:none;"></canvas>
+    <div id="chartContainer" style="position: relative; height: 400px; width: 100%; margin: 20px 0;">
+  <canvas id="chart"></canvas>
+</div>
+<div id="chartDataDisplay" style="margin-top: 20px; padding: 15px; background: #f8f9fa; border-radius: 5px;">
+  <h4>Chart Data</h4>
+  <pre id="chartDataJson"></pre>
+</div>
 
     <script src="script.js"></script>
 </body>
