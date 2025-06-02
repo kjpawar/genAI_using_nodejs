@@ -179,10 +179,12 @@ Recent Examples:
     }
     
     prompt += `
-Rules:
-- Generate precise PostgreSQL queries
-- Use only the schema shown
-- Never invent columns
+Generate ONLY valid PostgreSQL queries. Follow these rules:
+1. Never include explanations or comments in the SQL
+2. Always start with SELECT, INSERT, UPDATE or DELETE
+3. Never include markdown backticks
+4. Never include the word "This" in the query
+
 
 ${chartMode ? "CHART REQUEST: Return exactly 2 columns with clear aliases" : ""}
 

@@ -276,24 +276,25 @@ sendButton.addEventListener('click', async () => {
         if (loadingDiv) loadingDiv.remove();
 
         if (data.error) {
-            chatBox.innerHTML += `<div style="color:red;"><b>Error:</b> ${data.human_answer}</div>`;
-        } else {
+        chatBox.innerHTML += `<div class="error-message"><b>Error:</b> ${data.human_answer || data.message}</div>`;
+         } else if (data.answers) {
+        // Handle document responses
+        data.answers.forEach(answer => {
+            const cleanAnswer = answer.answer
+                .replace(/\*\*/g, '') // Remove markdown bold
+                .replace(/-\s/g, '<br>- ') // Convert list to HTML
+                .trim();
             
-            // In your sendButton event listener, modify the document response handling:
-if (data.document_info) {
-  // Clean up the response to remove unwanted formatting
-  let cleanAnswer = data.human_answer
-    .replace(/###\s*"\d+\.\s*[^"]+":/g, '') // Remove section headers
-    .replace(/"/g, '') // Remove quotation marks
-    .trim();
-  
-  chatBox.innerHTML += `
-    <div class="document-response">
-      <b>${data.document_info.project} (${data.document_info.date}):</b>
-      <div class="document-content">${cleanAnswer}</div>
-    </div>
-  `;
-}
+            chatBox.innerHTML += `
+                <div class="document-response">
+                    <b>From ${answer.document_info.name}:</b>
+                    <div class="document-answer">${cleanAnswer}</div>
+                    <small>Source: ${answer.document_info.url}</small>
+                </div>
+            `;
+        });
+        }
+      
             // Handle chart responses
             else if (data.chart_data) {
                 chatBox.innerHTML += `<div><b>Chart Data JSON:</b> <code>${JSON.stringify(data.chart_data, null, 2)}</code></div>`;
@@ -316,10 +317,10 @@ if (data.document_info) {
                     <div><b>Answer:</b> <code>${data.human_answer}</code></div>
                 `;
             }
-        }
+        
 
-        chatBox.scrollTop = chatBox.scrollHeight;
-    } catch (error) {
+          chatBox.scrollTop = chatBox.scrollHeight;
+          }catch (error) {
         console.error('Error:', error);
         const loadingDiv = document.getElementById(loadingMessageId);
         if (loadingDiv) loadingDiv.innerHTML = '<i>Error fetching response.</i>';

@@ -2,7 +2,6 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
-const fs = require('fs-extra');
 const { Pool } = require('pg');
 const multer = require('multer');
 const crypto = require('crypto');
@@ -12,6 +11,11 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 const cloudinary = require('cloudinary').v2;
 const { v4: uuidv4 } = require('uuid');
+const pdf = require('pdf-parse');
+const mammoth = require('mammoth');
+const textract = require('textract');
+const xlsx = require('xlsx');
+const fs = require('fs-extra');
 
 const app = express();
 const upload = multer({ dest: 'uploads/' });
@@ -45,23 +49,17 @@ function isDocumentQuery(message) {
   const lowerMsg = message.toLowerCase();
   
   // More specific document-related phrases
-  const docPhrases = [
-    'who was present',
-    'attendees of',
-    'meeting minutes',
-    'client review',
-    'what was discussed',
-    'decisions made',
-    'action items',
-    'present at',
-    'participants in'
+    const docPhrases = [
+    'meeting minutes', 'who was present', 'attendees of', 
+    'what was discussed', 'decisions made', 'action items',
+    'present at', 'participants in', 'summary of', 'key points',
+    'document about', 'notes from', 'client review'
   ];
 
-  // Additional checks for meeting/document context
   const hasMeetingContext = lowerMsg.includes('meeting') || 
                           lowerMsg.includes('review') ||
-                          lowerMsg.includes('discussion');
-
+                          lowerMsg.includes('discussion') ||
+                          lowerMsg.includes('minutes');
   return docPhrases.some(phrase => lowerMsg.includes(phrase)) || 
          (hasMeetingContext && !lowerMsg.includes('chart'));
 }
@@ -123,233 +121,148 @@ app.post("/chat", async (req, res) => {
  
     // Then check for document query
     else if (isDocumentQuery(userPrompt)) {
-      const projectMatch = userPrompt.match(/website redesign project|project\s+\w+/i);
-      const dateMatch = userPrompt.match(/\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2}\b/i);
-      
+      const projectMatch = userPrompt.match(/(?:project|meeting|review)\s+([^\.,;?!]+)/i) || 
+                      userPrompt.match(/([^\.,;?!]+)\s+(?:project|meeting|review)/i);
+  
+      const projectName = projectMatch ? projectMatch[1].trim() : null;
+      const dateMatch = userPrompt.match(/\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2}(?:,?\s+\d{4})?\b/i);
       const client = await pool.connect();
       try {
         let query;
         let params = [];
         
-        if (projectMatch && dateMatch) {
+        if (projectName && dateMatch) {
           query = `SELECT * FROM documents 
                    WHERE name ILIKE $1 AND name ILIKE $2
-                   ORDER BY created_at DESC LIMIT 1`;
-          params = [`%${projectMatch[0]}%`, `%${dateMatch[0]}%`];
-        } else if (projectMatch) {
+                   ORDER BY created_at DESC LIMIT 3`;
+          params = [`%${projectName}%`, `%${dateMatch[0]}%`];
+        } else if (projectName) {
           query = `SELECT * FROM documents 
                    WHERE name ILIKE $1
-                   ORDER BY created_at DESC LIMIT 1`;
-          params = [`%${projectMatch[0]}%`];
+                   ORDER BY created_at DESC LIMIT 3`;
+          params = [`%${projectName}%`];
         } else if (dateMatch) {
           query = `SELECT * FROM documents 
-                   WHERE name ILIKE $1 AND name ILIKE $2
-                   ORDER BY created_at DESC LIMIT 1`;
-          params = [`%meeting%`, `%${dateMatch[0]}%`];
+                   WHERE name ILIKE $1
+                   ORDER BY created_at DESC LIMIT 3`;
+          params = [`%${dateMatch[0]}%`];
         } else {
           query = `SELECT * FROM documents 
                    WHERE name ILIKE $1
-                   ORDER BY created_at DESC LIMIT 1`;
+                   ORDER BY created_at DESC LIMIT 3`;
           params = [`%meeting%`];
         }
+      //   if (projectName && dateMatch) {
+      //     query = `SELECT * FROM documents 
+      //          WHERE (name ILIKE $1 OR name ILIKE $2) 
+      //          AND name ILIKE $3
+      //          ORDER BY created_at DESC LIMIT 3`;
+      //     params = [`%project%${projectName}%`, `%${projectName}%project%`, `%${dateMatch[0]}%`];
+      // } else if (projectName) {
+      //     query = `SELECT * FROM documents 
+      //          WHERE name ILIKE $1 OR name ILIKE $2 name ILIKE $3
+      //          ORDER BY created_at DESC LIMIT 3`;
+      //     params = [`%project%${projectName}%`, `%${projectName}%project%`, `%${projectName}%`];
+      // } else if (dateMatch) {
+      //     query = `SELECT * FROM documents 
+      //          WHERE name ILIKE $1 AND name ILIKE $2
+      //          ORDER BY created_at DESC LIMIT 3`;
+      //     params = [`%meeting%`, `%${dateMatch[0]}%`];
+      // } else {
+      //     query = `SELECT * FROM documents 
+      //          WHERE name ILIKE $1
+      //          ORDER BY created_at DESC LIMIT 3`;
+      //     params = [`%meeting%`];
+      //  }
 
-        const result = await client.query(query, params);
-        const document = result.rows[0];
-
-        if (!document) {
-          let errorMsg = "No meeting minutes found";
-          if (projectMatch) errorMsg += ` for ${projectMatch[0]}`;
-          if (dateMatch) errorMsg += ` on ${dateMatch[0]}`;
-          return res.json({ error: true, human_answer: errorMsg });
-        }
-
-        const docDateMatch = document.name.match(/(\d{4}-\d{2}-\d{2})|(\w+\s+\d{1,2},\s+\d{4})/);
-        const docDate = docDateMatch ? docDateMatch[0] : "unknown date";
-
-        const prompt = `
-          Meeting Minutes Document: ${document.name}
-          Content URL: ${document.url}
-          
-          User Question: "${userPrompt}"
-          
-          Provide ONLY the exact information requested in the question.
-          Do not include any additional summaries or sections.
-          Be concise and directly answer the question.
-        `;
-
-        const genResult = await model.generateContent(prompt);
-        const response = await genResult.response;
+          console.log("Executing document query:", query);
+          console.log("With parameters:", params);
         
-        return res.json({
+
+          const result = await client.query(query, params);
+    
+          if (!result.rows.length) {
+            let errorMsg = "No meeting minutes found";
+            if (projectName) errorMsg += ` for ${projectName}`;
+            if (dateMatch) errorMsg += ` on ${dateMatch[0]}`;
+            const exampleName = projectName 
+              ? `E-Commerce-Project-Meeting-${new Date().toISOString().split('T')[0]}.pdf`
+              : `Project-Meeting-${new Date().toISOString().split('T')[0]}.docx`;
+          
+            return res.json({
+            error: true,
+            human_answer: `${errorMsg}. Try uploading with naming like: "${exampleName}"`
+          });
+        }
+        
+          const documentResponses = await processDocuments(result.rows, userPrompt);
+          return res.json({
           error: false,
-          human_answer: response.text(),
-          document_info: {
-            name: document.name,
-            date: docDate,
-            project: projectMatch ? projectMatch[0] : "General Meeting"
-          }
+          answers: documentResponses
+        });
+
+      } catch (error) {
+        console.error("Document processing error:", error);
+        return res.status(500).json({
+          error: true,
+          message: "Failed to process documents",
+          details: error.message
         });
       } finally {
         client.release();
       }
     }
-    
-  //     try {
-  //   const projectMatch = userPrompt.match(/(e[\s-]?commerce|website|platform)\s+\w*/i) || 
-  //                      userPrompt.match(/project\s+\w+/i);
-    
-  //   // Improved date matching that handles multiple formats
-  //   const dateMatch = userPrompt.match(
-  //     /(\d{4}-\d{2}-\d{2})|(\w+\s+\d{1,2},\s+\d{4})|(\d{1,2}\/\d{1,2}\/\d{4})/i
-  //   );
 
-  //   const client = await pool.connect();
-  //   try {
-  //     let query = `SELECT * FROM documents WHERE `;
-  //     let params = [];
-  //     let conditions = [];
+//     // Process all matching documents
+//         const documentResponses = [];
+//         for (const document of result.rows) {
+//           const docDateMatch = document.name.match(/(\d{4}-\d{2}-\d{2})|(\w+\s+\d{1,2},\s+\d{4})/);
+//           const docDate = docDateMatch ? docDateMatch[0] : "unknown date";
       
-  //     if (projectMatch) {
-  //       conditions.push(`name ILIKE $${params.length + 1}`);
-  //       params.push(`%${projectMatch[0]}%`);
-  //     }
+//       // Extract document text (implement this function)
+//           const docText = await extractDocumentText(document.url);
       
-  //     // Date condition (if found in query)
-  //     if (dateMatch) {
-  //       const dateStr = dateMatch[0];
-  //       // Convert to ISO format for better matching
-  //       const isoDate = new Date(dateStr).toISOString().split('T')[0];
-  //       conditions.push(`(name ILIKE $${params.length + 1} OR created_at::date = $${params.length + 2})`);
-  //       params.push(`%${dateStr}%`, isoDate);
-  //     }
-      
-  //     // Always include meeting/review terms
-  //     conditions.push(`(name ILIKE $${params.length + 1} OR name ILIKE $${params.length + 2})`);
-  //     params.push('%meeting%', '%review%');
-      
-  //     query += conditions.join(' AND ') + ' ORDER BY created_at DESC LIMIT 1';
-      
-  //     const result = await client.query(query, params);
-  //     const document = result.rows[0];
-
-  //     if (!document) {
-  //       let errorMsg = "No meeting documents found";
-  //       if (projectMatch) errorMsg += ` for ${projectMatch[0]}`;
-  //       if (dateMatch) errorMsg += ` on ${dateMatch[0]}`;
-  //       return res.json({ error: true, human_answer: errorMsg });
-  //     }
-
-  //     // Improved prompt for meeting minutes
-  //         const prompt = `
-  //           Meeting Document: ${document.name}
-  //           Content URL: ${document.url}
-            
-  //           Answer ONLY the following question:
-  //           "${userPrompt}"
-            
-  //           Requirements:
-  //           - List only names and roles if about attendees
-  //           - Be specific and factual
-  //           - Do not invent information
-  //           - If unsure, say "not mentioned in the document"
-  //         `;
-
-  //         const genResult = await model.generateContent(prompt);
-  //         const response = await genResult.response;
-          
-  //         return res.json({
-  //           error: false,
-  //           human_answer: response.text(),
-  //           document_info: {
-  //             name: document.name,
-  //             project: projectMatch ? projectMatch[0] : "General Meeting"
-  //           }
-  //         });
-  //   } finally {
-  //     client.release();
-  //   }
-  // } catch (docError) {
-  //   // Error handling
-  //   console.error("Document processing error:", docError);
-  //       return res.json({
-  //         error: true,
-  //         human_answer: "Failed to retrieve meeting information. Please try again later."
-  //       });
-  // }
-
-
-
-
-      // const projectMatch = userPrompt.match(/website redesign project|project\s+\w+/i);
-      // const dateMatch = userPrompt.match(/\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2}\b/i);
-      
-      // const client = await pool.connect();
-      // try {
-      //   let query;
-      //   let params = [];
+//           const prompt = `
+//         Meeting Minutes Document: ${document.name}
+//         Date: ${docDate}
+//         Content: ${docText.substring(0, 5000)}... [truncated if long]
         
-      //   if (projectMatch && dateMatch) {
-      //     query = `SELECT * FROM documents 
-      //              WHERE name ILIKE $1 AND name ILIKE $2
-      //              ORDER BY created_at DESC LIMIT 1`;
-      //     params = [`%${projectMatch[0]}%`, `%${dateMatch[0]}%`];
-      //   } else if (projectMatch) {
-      //     query = `SELECT * FROM documents 
-      //              WHERE name ILIKE $1
-      //              ORDER BY created_at DESC LIMIT 1`;
-      //     params = [`%${projectMatch[0]}%`];
-      //   } else if (dateMatch) {
-      //     query = `SELECT * FROM documents 
-      //              WHERE name ILIKE $1 AND name ILIKE $2
-      //              ORDER BY created_at DESC LIMIT 1`;
-      //     params = [`%meeting%`, `%${dateMatch[0]}%`];
-      //   } else {
-      //     query = `SELECT * FROM documents 
-      //              WHERE name ILIKE $1
-      //              ORDER BY created_at DESC LIMIT 1`;
-      //     params = [`%meeting%`];
-      //   }
-
-      //   const result = await client.query(query, params);
-      //   const document = result.rows[0];
-
-      //   if (!document) {
-      //     let errorMsg = "No meeting minutes found";
-      //     if (projectMatch) errorMsg += ` for ${projectMatch[0]}`;
-      //     if (dateMatch) errorMsg += ` on ${dateMatch[0]}`;
-      //     return res.json({ error: true, human_answer: errorMsg });
-      //   }
-
-      //   const docDateMatch = document.name.match(/(\d{4}-\d{2}-\d{2})|(\w+\s+\d{1,2},\s+\d{4})/);
-      //   const docDate = docDateMatch ? docDateMatch[0] : "unknown date";
-
-      //   const prompt = `
-      //     Meeting Minutes Document: ${document.name}
-      //     Content URL: ${document.url}
-          
-      //     User Question: "${userPrompt}"
-          
-      //     Provide ONLY the exact information requested in the question.
-      //     Do not include any additional summaries or sections.
-      //     Be concise and directly answer the question.
-      //   `;
-
-      //   const genResult = await model.generateContent(prompt);
-      //   const response = await genResult.response;
+//         User Question: "${userPrompt}"
         
-      //   return res.json({
-      //     error: false,
-      //     human_answer: response.text(),
-      //     document_info: {
-      //       name: document.name,
-      //       date: docDate,
-      //       project: projectMatch ? projectMatch[0] : "General Meeting"
-      //     }
-      //   });
-      // } finally {
-      //   client.release();
-      // }
-    
+//         Provide ONLY the exact information requested in the question.
+//         If the information is not in the document, say "This information is not in the document."
+//         Be concise and directly answer the question.
+//       `;
+
+//           const genResult = await model.generateContent(prompt);
+//           const response = await genResult.response;
+      
+//           documentResponses.push({
+//             answer: response.text(),
+//             document_info: {
+//               name: document.name,
+//               date: docDate,
+//               url: document.url
+//         }
+//       });
+//     }
+
+//       return res.json({
+//       error: false,
+//       answers: documentResponses
+//     });
+//   }catch (error) {
+//     console.error("Document query error:", error);
+//     return res.status(500).json({
+//       error: true,
+//       message: "Failed to search documents",
+//       details: error.message
+//     });
+//   } finally {
+//     client.release();
+//   }
+// }
+ 
     // Otherwise handle as regular SQL query
     else {
       const sqlQuery = await getChatCompletion(messages, false);
@@ -404,6 +317,163 @@ function generateColors(count) {
   return colors;
 }
 
+
+
+// Enhanced document text extraction
+// async function extractDocumentText(documentUrl) {
+//   try {
+//     let buffer;
+    
+//     // Handle local files
+//     if (documentUrl.startsWith('file://')) {
+//       buffer = await fs.readFile(documentUrl.replace('file://', ''));
+//     } 
+//     // Handle remote files
+//     else {
+//       const response = await fetch(documentUrl);
+//       if (!response.ok) throw new Error(`HTTP ${response.status}`);
+//       buffer = await response.buffer();
+//     }
+
+//     const ext = documentUrl.split('.').pop().toLowerCase();
+    
+//     switch (ext) {
+//       case 'pdf':
+//         const pdfData = await pdf(buffer);
+//         return pdfData.text;
+        
+//       case 'docx':
+//       case 'doc':
+//         const { value } = await mammoth.extractRawText({ buffer });
+//         return value;
+        
+//       case 'xlsx':
+//       case 'xls':
+//         const workbook = xlsx.read(buffer, { type: 'buffer' });
+//         return workbook.SheetNames.map(sheet => 
+//           xlsx.utils.sheet_to_csv(workbook.Sheets[sheet])
+//         ).join('\n\n');
+        
+//       case 'txt':
+//       case 'csv':
+//         return buffer.toString('utf8');
+        
+//       default:
+//         return buffer.toString('utf8');
+//     }
+//   } catch (error) {
+//     console.error("Text extraction failed:", error);
+//     return null;
+//   }
+// }
+async function extractDocumentText(documentUrl) {
+  try {
+    let buffer;
+    
+    // Handle local files
+    if (documentUrl.startsWith('file://')) {
+      buffer = await fs.readFile(documentUrl.replace('file://', ''));
+    } 
+    // Handle remote files
+    else {
+      const response = await fetch(documentUrl);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      
+      // Fix: Use .arrayBuffer() instead of .buffer()
+      const arrayBuffer = await response.arrayBuffer();
+      buffer = Buffer.from(arrayBuffer);
+    }
+
+    const ext = documentUrl.split('.').pop().toLowerCase();
+    
+    switch (ext) {
+      case 'pdf':
+        const pdfData = await pdf(buffer);
+        return pdfData.text;
+        
+      case 'docx':
+      case 'doc':
+        const { value } = await mammoth.extractRawText({ buffer });
+        return value;
+        
+      case 'xlsx':
+      case 'xls':
+        const workbook = xlsx.read(buffer, { type: 'buffer' });
+        return workbook.SheetNames.map(sheet => 
+          xlsx.utils.sheet_to_csv(workbook.Sheets[sheet])
+        ).join('\n\n');
+        
+      case 'txt':
+      case 'csv':
+        return buffer.toString('utf8');
+        
+      default:
+        return buffer.toString('utf8');
+    }
+  } catch (error) {
+    console.error("Text extraction failed:", error);
+    return null;
+  }
+}
+
+// Process documents with Gemini
+async function processDocuments(documents, userPrompt) {
+  const responses = [];
+  
+  for (const doc of documents) {
+    try {
+      const docText = await extractDocumentText(doc.url);
+      if (!docText) {
+        responses.push({
+          answer: "Could not extract text from this document",
+          document_info: {
+            name: doc.name,
+            url: doc.url
+          }
+        });
+        continue;
+      }
+
+      const prompt = `DOCUMENT ANALYSIS REQUEST:
+Document Title: ${doc.name}
+User Question: "${userPrompt}"
+Document Content (truncated):
+${docText.substring(0, 15000)}...
+
+INSTRUCTIONS:
+1. Answer ONLY using the document content
+2. Be specific and concise
+3. For attendees, list all names found
+4. If information is missing, say "Not mentioned in this document"
+
+ANSWER:`;
+      
+      const result = await model.generateContent(prompt);
+      const response = await result.response;
+      
+      responses.push({
+        answer: response.text(),
+        document_info: {
+          name: doc.name,
+          url: doc.url,
+          snippet: docText.substring(0, 200) + '...'
+        }
+      });
+      
+    } catch (error) {
+      console.error(`Error processing ${doc.name}:`, error);
+      responses.push({
+        answer: "Error processing this document",
+        document_info: {
+          name: doc.name,
+          url: doc.url
+        }
+      });
+    }
+  }
+  
+  return responses;
+}
 // [Rest of your existing routes and helper functions remain the same...]
 // (upload-dataset, training-status, upload-document, etc.)
 
@@ -480,8 +550,22 @@ app.get('/training-status', async (req, res) => {
 async function runSqlQuery(sqlQuery) {
   const client = await pool.connect();
   try {
+    // Validate the query first
+    if (sqlQuery.toLowerCase().includes('this') || 
+        sqlQuery.toLowerCase().includes('that') ||
+        !sqlQuery.trim().startsWith('SELECT')) {
+      throw new Error('Invalid SQL query generated');
+    }
+    
+    console.log("Executing SQL:", sqlQuery);
     const result = await client.query(sqlQuery);
     return result;
+  } catch (error) {
+    console.error("SQL Error:", {
+      query: sqlQuery,
+      error: error.message
+    });
+    throw new Error(`Database error: ${error.message}`);
   } finally {
     client.release();
   }
