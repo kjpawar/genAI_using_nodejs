@@ -52,16 +52,20 @@ function isDocumentQuery(message) {
     const docPhrases = [
     'meeting minutes', 'who was present', 'attendees of', 
     'what was discussed', 'decisions made', 'action items',
-    'present at', 'participants in', 'summary of', 'key points',
-    'document about', 'notes from', 'client review'
+    'present at', 'participants in', 'summary of', 'key points','meeting',
+    'document about', 'notes from', 'client review','minutes of meeting', 'mom', 'meeting notes',
+    'follow-ups', 'blockers', 'decisions made', 'next steps',
+    'risks identified', 'accountability', 'progress update'
   ];
 
-  const hasMeetingContext = lowerMsg.includes('meeting') || 
-                          lowerMsg.includes('review') ||
-                          lowerMsg.includes('discussion') ||
-                          lowerMsg.includes('minutes');
-  return docPhrases.some(phrase => lowerMsg.includes(phrase)) || 
-         (hasMeetingContext && !lowerMsg.includes('chart'));
+  // const hasMeetingContext = lowerMsg.includes('meeting') || 
+  //                         lowerMsg.includes('review') ||
+  //                         lowerMsg.includes('discussion') ||
+  //                         lowerMsg.includes('minutes');
+  // return docPhrases.some(phrase => lowerMsg.includes(phrase)) || 
+  //        (hasMeetingContext && !lowerMsg.includes('chart'));
+  return docPhrases.some(phrase => lowerMsg.includes(phrase)
+  ) || /(meeting|review|discussion|minutes)\s+(for|about|on)/i.test(message);       
 }
 
 
@@ -132,27 +136,63 @@ app.post("/chat", async (req, res) => {
       const client = await pool.connect();
       try {
         let query;
-        let params = [];
-        
-          if (dateMatch) {
-  query = `SELECT * FROM documents 
-           WHERE name % $1
-           ORDER BY created_at DESC LIMIT 3`;
-  params = [dateMatch[0]];
- } else if (projectName && dateMatch) {
-  query = `SELECT * FROM documents 
-           WHERE name % $1 AND name % $2
-           ORDER BY name <-> $3 LIMIT 1`;
-  params = [
-    projectName,
-    dateMatch[0],
-    `${projectName} ${dateMatch[0]}`
-  ];
- }else if (projectName) {
-  query = `SELECT * FROM documents 
-           WHERE name ILIKE $1
-           ORDER BY name <-> $2 DESC LIMIT 3`;
-  params = [`%${projectName}%`, `${projectName}-meeting%`];
+        let params=[];
+        if (projectName && dateMatch) {
+          // Search by both project and date
+          query = `
+            SELECT * FROM documents 
+            WHERE name ILIKE $1 AND name ILIKE $2
+            ORDER BY created_at DESC 
+            LIMIT 3`;
+          params = [`%${projectName}%`, `%${dateMatch[0]}%`];
+        } 
+        else if (projectName) {
+          // Search by project only
+          query = `
+            SELECT * FROM documents 
+            WHERE name ILIKE $1
+            ORDER BY 
+              SIMILARITY(name, $2) DESC,
+              created_at DESC
+            LIMIT 3`;
+          params = [`%${projectName}%`, `${projectName}-%`];
+        }
+        else if (dateMatch) {
+          // Search by date only
+          query = `
+            SELECT * FROM documents 
+            WHERE name ILIKE $1
+            ORDER BY created_at DESC 
+            LIMIT 3`;
+          params = [`%${dateMatch[0]}%`];
+        }
+        else {
+          // Fallback: Most recent meeting documents
+          query = `
+            SELECT * FROM documents 
+            WHERE name ILIKE '%MEETING%' OR name ILIKE '%MOM%'
+            ORDER BY created_at DESC 
+            LIMIT 3`;
+        }
+//           if (dateMatch) {
+//   query = `SELECT * FROM documents 
+//            WHERE name % $1
+//            ORDER BY created_at DESC LIMIT 3`;
+//   params = [dateMatch[0]];
+//  } else if (projectName && dateMatch) {
+//   query = `SELECT * FROM documents 
+//            WHERE name % $1 AND name % $2
+//            ORDER BY name <-> $3 LIMIT 1`;
+//   params = [
+//     projectName,
+//     dateMatch[0],
+//     `${projectName} ${dateMatch[0]}`
+//   ];
+//  }else if (projectName) {
+//   query = `SELECT * FROM documents 
+//            WHERE name ILIKE $1
+//            ORDER BY name <-> $2 DESC LIMIT 3`;
+//   params = [`%${projectName}%`, `${projectName}-meeting%`];
 
 //  else if (projectName) { 
 //     query = `SELECT * FROM documents 
@@ -165,12 +205,12 @@ app.post("/chat", async (req, res) => {
   // params = [`${projectName}%`];
   //params = [`${projectName}%`]; // ✅ interpolated template literal
 
-} else {
-  query = `SELECT * FROM documents 
-           WHERE name % $1
-           ORDER BY created_at DESC LIMIT 3`;
-  params = ['meeting'];
-}
+// } else {
+//   query = `SELECT * FROM documents 
+//            WHERE name % $1
+//            ORDER BY created_at DESC LIMIT 3`;
+//   params = ['meeting'];
+// }
           console.log("Executing document query:", query);
           console.log("With parameters:", params);
         
@@ -182,19 +222,6 @@ app.post("/chat", async (req, res) => {
   if (projectName) errorMsg += ` for "${projectName}"`;
   if (dateMatch) errorMsg += ` on ${dateMatch[0]}`;
   
-  // Get similar project names for suggestions
-  const similarProjects = await client.query(
-    `SELECT DISTINCT regexp_replace(
-      regexp_replace(name, '-meeting-\d{4}-\d{2}-\d{2}.*', ''), 
-      '[-_]', ' ', 'g') AS project 
-     FROM documents 
-     WHERE name % $1 LIMIT 3`,
-    [projectName || 'meeting']
-  );
-  
-  if (similarProjects.rows.length) {
-    errorMsg += `. Did you mean: ${similarProjects.rows.map(r => r.project).join(', ')}?`;
-  }
   
   return res.json({
     error: true,
@@ -245,19 +272,187 @@ app.post("/chat", async (req, res) => {
   }
 });
 
-function extractProjectName(query) {
-  // Remove question words and focus on the project name
-  const cleanedQuery = query.toLowerCase()
-    .replace(/who was present at /i, '')
-    .replace(/what was discussed in /i, '')
-    .replace(/meeting/i, '')
-    .replace(/minutes/i, '')
-    .trim();
+// function extractProjectName(query) {
   
-  // Extract the main project name (first word)
-  const projectMatch = cleanedQuery.match(/^([a-z0-9]+)/i);
-  return projectMatch ? projectMatch[1].toLowerCase() : null;
+//   // Remove question words and focus on the project name
+//   const cleanedQuery = query.toLowerCase()
+//     .replace(/who was present at /i, '')
+//     .replace(/what was discussed in /i, '')
+//     .replace(/meeting/i, '')
+//     .replace(/minutes/i, '')
+//     .trim();
+  
+//   // Extract the main project name (first word)
+//   const projectMatch = cleanedQuery.match(/^([a-z0-9]+)/i);
+//   return projectMatch ? projectMatch[1].toLowerCase() : null;
+// }
+// function extractProjectName(query) {
+//   // Clean and prepare the query
+//   const cleanedQuery = query.replace(/[^\w\s-]/g, '').trim();
+//   const withoutDates = query.replace(
+//     /\b\d{4}-\d{2}-\d{2}\b|\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2},?\s+\d{4}\b/gi,''
+//   );
+//   // Priority patterns for finance meetings
+//   const patterns = [
+//     // 1. Meeting about specific project: "Phoenix Revamp meeting"
+//     /(?:meeting|mom|review)\s+(?:for|about|on)?\s*([A-Z][A-Za-z0-9-]*(?:\s+[A-Za-z0-9-]+)*)/i,
+    
+//     // 2. Transaction IDs: "TXN-4567 review"
+//     /([A-Z]{2,}-\d+)\s*(?:meeting|mom|review)/i,
+    
+//     // 3. Client names: "JPMorgan Q2 review"
+//     /([A-Z][A-Za-z0-9]+)\s+(?:Q[1-4]|meeting|mom)/i,
+    
+//     // 4. Standalone project names (must be capitalized)
+//     /\b([A-Z][A-Za-z0-9-]+)\b(?!\s+meeting)/i
+//   ];
+
+//   // Try each pattern in order
+//   for (const pattern of patterns) {
+//     const match = pattern.exec(cleanedQuery);
+//     if (match && match[1]) {
+//       // Format the extracted name to match document naming convention
+//       return match[1]
+//         .replace(/\s+/g, '-')  // Replace spaces with hyphens
+//         .toUpperCase();        // Convert to uppercase
+//     }
+//   }
+
+//   // Fallback: Look for any finance-like term (acronyms, codes)
+//   const financeTerm = cleanedQuery.match(/([A-Z]{2,}|[A-Z]+\d+|\d+[A-Z]+)/);
+//   return financeTerm ? financeTerm[0] : null;
+// }
+// function extractProjectName(query) {
+//   // Step 1: Pre-clean the query
+//   const cleanedQuery = query
+//     .replace(/\b(who|what|when|where|why|how|was|were|did|does|do|present|attended|minutes)\b/gi, '')
+//     .replace(/\b(meeting|mom|review|discussion)\b/gi, '')
+//     .trim();
+//   // Step 2: Remove dates to avoid false matches
+//   const withoutDates = cleanedQuery.replace(
+//     /\b\d{4}-\d{2}-\d{2}\b|\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2},?\s+\d{4}\b/gi,
+//     ''
+//   ).trim();
+
+//   // Enhanced patterns for finance documents
+//   const patterns = [
+//     // 1. Meeting about specific project: "Phoenix Revamp meeting"
+//     /(?:meeting|mom|review)\s+(?:for|about|on)?\s*([A-Z][A-Za-z0-9-]*(?:\s+[A-Za-z0-9-]+)*)/i,
+    
+//     // 2. Transaction IDs: "TXN-4567 review"
+//     /([A-Z]{2,}-\d+)\s*(?:meeting|mom|review)/i,
+    
+//     // 3. Client names: "JPMorgan Q2 review"
+//     /([A-Z][A-Za-z0-9]+)\s+(?:Q[1-4]|meeting|mom)/i,
+    
+//     // 4. Standalone project names (must be capitalized)
+//     /\b([A-Z][A-Za-z0-9-]+)\b(?!\s+meeting)/i
+//   ];
+
+//   // Try patterns in order of specificity
+//   for (const pattern of patterns) {
+//     const match = pattern.exec(withoutDates);
+//     if (match && match[1]) {
+//       // Standardize the format
+//       return match[1]
+//         .replace(/\s+/g, '-') // Spaces to hyphens
+//         .replace(/-+/g, '-')  // Remove duplicate hyphens
+//         .toUpperCase();       // Finance projects are typically uppercase
+//     }
+//   }
+
+//   // Final fallback: Look for any finance-like term
+//   const lastAttempt = withoutDates.match(
+//     /([A-Z]{2,}\d*|(?:[A-Z]+-)*[A-Z]+\d*)/i
+//   );
+  
+//   return lastAttempt ? lastAttempt[0].toUpperCase() : null;
+// }
+function extractProjectName(query) {
+  // First remove all dates to prevent false matches
+  const withoutDates = query.replace(
+    /\b\d{4}-\d{2}-\d{2}\b|\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2},?\s+\d{4}\b/gi,
+    ''
+  ).trim();
+
+  // Clean remaining query
+  const cleanedQuery = withoutDates
+    .replace(/[^\w\s-]/g, '')
+    .replace(/\b(what|who|when|where|why|how|was|were|did|does|meeting|mom|review|discussion|minutes)\b/gi, '')
+    .trim();
+
+  // Priority patterns (ordered by specificity)
+  const patterns = [
+    // 1. Project before meeting terms: "instapro meeting"
+    /([A-Za-z0-9-]+)(?=\s+(?:meeting|mom|review|discussion))/i,
+    
+    // 2. Project after "at/in/for": "at instapro meeting"
+    /(?:at|in|for)\s+([A-Za-z0-9-]+)(?=\s|$)/i,
+    
+    // 3. Standalone project names (minimum 3 chars)
+    /\b([A-Za-z0-9-]{3,})\b/i
+  ];
+
+  // Try patterns in order
+  for (const pattern of patterns) {
+    const match = pattern.exec(cleanedQuery);
+    if (match && match[1]) {
+      const potentialName = match[1];
+      // Skip any remaining date-like patterns
+      if (!potentialName.match(/\d{4}/)) {
+        return potentialName
+          .replace(/\s+/g, '-')
+          .toUpperCase();
+      }
+    }
+  }
+
+  return null;
 }
+// function extractProjectName(query) {
+//   // Clean and prepare the query
+//   const cleanedQuery = query.replace(/[^\w\s-]/g, '').trim();
+//   const withoutDates = query.replace(
+//     /\b\d{4}-\d{2}-\d{2}\b|\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2},?\s+\d{4}\b/gi,
+//     ''
+//   ).trim();
+
+//   // NEW: First try to extract project between "at" and "meeting"
+//   const atMeetingMatch = withoutDates.match(/at\s+([a-z0-9-]+)\s+(?:meeting|mom|review)/i);
+//   if (atMeetingMatch && atMeetingMatch[1]) {
+//     return atMeetingMatch[1].toUpperCase().replace(/\s+/g, '-');
+//   }
+
+//   // Rest of your existing patterns (unchanged)
+//   const patterns = [
+//     // 1. Meeting about specific project: "Phoenix Revamp meeting"
+//     /(?:meeting|mom|review)\s+(?:for|about|on)?\s*([A-Z][A-Za-z0-9-]*(?:\s+[A-Za-z0-9-]+)*)/i,
+    
+//     // 2. Transaction IDs: "TXN-4567 review"
+//     /([A-Z]{2,}-\d+)\s*(?:meeting|mom|review)/i,
+    
+//     // 3. Client names: "JPMorgan Q2 review"
+//     /([A-Z][A-Za-z0-9]+)\s+(?:Q[1-4]|meeting|mom)/i,
+    
+//     // 4. Standalone project names (must be capitalized)
+//     /\b([A-Z][A-Za-z0-9-]+)\b(?!\s+meeting)/i
+//   ];
+
+//   // Try each pattern in order
+//   for (const pattern of patterns) {
+//     const match = pattern.exec(cleanedQuery);
+//     if (match && match[1]) {
+//       // Format the extracted name to match document naming convention
+//       return match[1]
+//         .replace(/\s+/g, '-')  // Replace spaces with hyphens
+//         .toUpperCase();        // Convert to uppercase
+//     }
+//   }
+
+//   // Fallback: Look for any finance-like term (acronyms, codes)
+//   const financeTerm = cleanedQuery.match(/([A-Z]{2,}|[A-Z]+\d+|\d+[A-Z]+)/);
+//   return financeTerm ? financeTerm[0] : null;
+// }
 // Add this preprocessing for document names
 function preprocessDocumentName(name) {
   return name
@@ -351,61 +546,86 @@ async function extractDocumentText(documentUrl) {
 }
 
 // Process documents with Gemini
+// async function processDocuments(documents, userPrompt) {
+//   const responses = [];
+  
+//   for (const doc of documents) {
+//     try {
+//       const docText = await extractDocumentText(doc.url);
+//       if (!docText) {
+//         responses.push({
+//           answer: "Could not extract text from this document",
+//           document_info: {
+//             name: doc.name,
+//             url: doc.url
+//           }
+//         });
+//         continue;
+//       }
+
+//       const prompt = `DOCUMENT ANALYSIS REQUEST:
+// Document Title: ${doc.name}
+// User Question: "${userPrompt}"
+// Document Content (truncated):
+// ${docText.substring(0, 15000)}...
+
+// INSTRUCTIONS:
+// 1. Answer ONLY using the document content
+// 2. Be specific and concise
+// 3. For attendees, list all names found
+// 4. If information is missing, say "Not mentioned in this document"
+
+// ANSWER:`;
+      
+//       const result = await model.generateContent(prompt);
+//       const response = await result.response;
+      
+//       responses.push({
+//         answer: response.text(),
+//         document_info: {
+//           name: doc.name,
+//           url: doc.url,
+//           snippet: docText.substring(0, 200) + '...'
+//         }
+//       });
+      
+//     } catch (error) {
+//       console.error(`Error processing ${doc.name}:`, error);
+//       responses.push({
+//         answer: "Error processing this document",
+//         document_info: {
+//           name: doc.name,
+//           url: doc.url
+//         }
+//       });
+//     }
+//   }
+  
+//   return responses;
+// }
 async function processDocuments(documents, userPrompt) {
   const responses = [];
   
   for (const doc of documents) {
-    try {
-      const docText = await extractDocumentText(doc.url);
-      if (!docText) {
-        responses.push({
-          answer: "Could not extract text from this document",
-          document_info: {
-            name: doc.name,
-            url: doc.url
-          }
-        });
-        continue;
-      }
+    const docText = await extractDocumentText(doc.url);
+    if (!docText) continue;
 
-      const prompt = `DOCUMENT ANALYSIS REQUEST:
-Document Title: ${doc.name}
-User Question: "${userPrompt}"
-Document Content (truncated):
-${docText.substring(0, 15000)}...
-
-INSTRUCTIONS:
-1. Answer ONLY using the document content
-2. Be specific and concise
-3. For attendees, list all names found
-4. If information is missing, say "Not mentioned in this document"
-
-ANSWER:`;
-      
-      const result = await model.generateContent(prompt);
-      const response = await result.response;
-      
-      responses.push({
-        answer: response.text(),
-        document_info: {
-          name: doc.name,
-          url: doc.url,
-          snippet: docText.substring(0, 200) + '...'
-        }
-      });
-      
-    } catch (error) {
-      console.error(`Error processing ${doc.name}:`, error);
-      responses.push({
-        answer: "Error processing this document",
-        document_info: {
-          name: doc.name,
-          url: doc.url
-        }
-      });
+    // Detect question type and tailor the prompt
+    let prompt;
+    if (/who attended|present/i.test(userPrompt)) {
+      prompt = `EXTRACT ATTENDEES ONLY from:\n${docText.substring(0, 15000)}`;
+    } else if (/action items|next steps/i.test(userPrompt)) {
+      prompt = `LIST ACTION ITEMS from:\n${docText.substring(0, 15000)}`;
+    } else {
+      prompt = `ANSWER this question: "${userPrompt}" using:\n${docText.substring(0, 15000)}`;
     }
+
+    const result = await model.generateContent(prompt);
+    responses.push({
+      answer: result.response.text(),
+      document: doc.name
+    });
   }
-  
   return responses;
 }
 // [Rest of your existing routes and helper functions remain the same...]
