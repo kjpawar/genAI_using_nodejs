@@ -621,10 +621,17 @@ async function processDocuments(documents, userPrompt) {
     }
 
     const result = await model.generateContent(prompt);
+    // responses.push({
+    //   answer: result.response.text(),
+    //   document: doc.name
+    // });
     responses.push({
-      answer: result.response.text(),
-      document: doc.name
-    });
+        answer: result.response.text(),
+        document_info: {
+          name: doc.name,
+          url: doc.url
+        }
+      });
   }
   return responses;
 }
