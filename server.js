@@ -134,7 +134,12 @@ app.post("/chat", async (req, res) => {
         let query;
         let params = [];
         
-           if (projectName && dateMatch) {
+          if (dateMatch) {
+  query = `SELECT * FROM documents 
+           WHERE name % $1
+           ORDER BY created_at DESC LIMIT 3`;
+  params = [dateMatch[0]];
+ } else if (projectName && dateMatch) {
   query = `SELECT * FROM documents 
            WHERE name % $1 AND name % $2
            ORDER BY name <-> $3 LIMIT 1`;
@@ -143,79 +148,29 @@ app.post("/chat", async (req, res) => {
     dateMatch[0],
     `${projectName} ${dateMatch[0]}`
   ];
-} else if (projectName) {       //where name ILIKE matrimony%
+ }else if (projectName) {
   query = `SELECT * FROM documents 
-           WHERE name % '$1'                  
-           ORDER BY name <-> $1 LIMIT 3`;
-  params = [projectName+'%'];
-} else if (dateMatch) {
-  query = `SELECT * FROM documents 
-           WHERE name % $1
-           ORDER BY created_at DESC LIMIT 3`;
-  params = [dateMatch[0]];
+           WHERE name ILIKE $1
+           ORDER BY name <-> $2 DESC LIMIT 3`;
+  params = [`%${projectName}%`, `${projectName}-meeting%`];
+
+//  else if (projectName) { 
+//     query = `SELECT * FROM documents 
+//          WHERE name % $1
+//          ORDER BY name <-> $2 DESC LIMIT 3`;
+//     params = [projectName, `${projectName}-meeting%`];      //where name ILIKE matrimony%
+  // query = `SELECT * FROM documents 
+  //          WHERE name ILIKE $1                  
+  //          ORDER BY name <-> $1 LIMIT 3`;
+  // params = [`${projectName}%`];
+  //params = [`${projectName}%`]; // ✅ interpolated template literal
+
 } else {
   query = `SELECT * FROM documents 
            WHERE name % $1
            ORDER BY created_at DESC LIMIT 3`;
   params = ['meeting'];
 }
-//         if (projectName && dateMatch) {
-//   // Search for exact project name and date pattern
-//   query = `SELECT * FROM documents 
-//            WHERE (name ~* $1 OR name ~* $2)
-//            AND name ~* $3
-//            ORDER BY similarity(name, $4) DESC LIMIT 1`;
-//   params = [
-//     `\\y${projectName}\\y`,  // Word boundaries
-//     `\\y${projectName.replace(/-/g, '[ _-]')}\\y`,  // Handle different separators
-//     `\\y${dateMatch[0]}\\y`,
-//     `${projectName} ${dateMatch[0]}`
-//   ];
-// } else if (projectName) {
-//   // Search for project name only
-//   query = `SELECT * FROM documents 
-//            WHERE name ~* $1
-//            ORDER BY similarity(name, $2) DESC LIMIT 3`;
-//   params = [
-//     `\\y${projectName}\\y`,
-//     projectName
-//   ];
-// } else if (dateMatch) {
-//   // Search by date only
-//   query = `SELECT * FROM documents 
-//            WHERE name ~* $1
-//            ORDER BY created_at DESC LIMIT 3`;
-//   params = [`\\y${dateMatch[0]}\\y`];
-// } else {
-//   // Default search
-//   query = `SELECT * FROM documents 
-//            WHERE name ~* $1
-//            ORDER BY created_at DESC LIMIT 3`;
-//   params = ['\\ymeeting\\y'];
-// }
-      //   if (projectName && dateMatch) {
-      //     query = `SELECT * FROM documents 
-      //          WHERE (name ILIKE $1 OR name ILIKE $2) 
-      //          AND name ILIKE $3
-      //          ORDER BY created_at DESC LIMIT 3`;
-      //     params = [`%project%${projectName}%`, `%${projectName}%project%`, `%${dateMatch[0]}%`];
-      // } else if (projectName) {
-      //     query = `SELECT * FROM documents 
-      //          WHERE name ILIKE $1 OR name ILIKE $2 name ILIKE $3
-      //          ORDER BY created_at DESC LIMIT 3`;
-      //     params = [`%project%${projectName}%`, `%${projectName}%project%`, `%${projectName}%`];
-      // } else if (dateMatch) {
-      //     query = `SELECT * FROM documents 
-      //          WHERE name ILIKE $1 AND name ILIKE $2
-      //          ORDER BY created_at DESC LIMIT 3`;
-      //     params = [`%meeting%`, `%${dateMatch[0]}%`];
-      // } else {
-      //     query = `SELECT * FROM documents 
-      //          WHERE name ILIKE $1
-      //          ORDER BY created_at DESC LIMIT 3`;
-      //     params = [`%meeting%`];
-      //  }
-
           console.log("Executing document query:", query);
           console.log("With parameters:", params);
         
@@ -265,55 +220,7 @@ app.post("/chat", async (req, res) => {
       }
     }
 
-//     // Process all matching documents
-//         const documentResponses = [];
-//         for (const document of result.rows) {
-//           const docDateMatch = document.name.match(/(\d{4}-\d{2}-\d{2})|(\w+\s+\d{1,2},\s+\d{4})/);
-//           const docDate = docDateMatch ? docDateMatch[0] : "unknown date";
-      
-//       // Extract document text (implement this function)
-//           const docText = await extractDocumentText(document.url);
-      
-//           const prompt = `
-//         Meeting Minutes Document: ${document.name}
-//         Date: ${docDate}
-//         Content: ${docText.substring(0, 5000)}... [truncated if long]
-        
-//         User Question: "${userPrompt}"
-        
-//         Provide ONLY the exact information requested in the question.
-//         If the information is not in the document, say "This information is not in the document."
-//         Be concise and directly answer the question.
-//       `;
 
-//           const genResult = await model.generateContent(prompt);
-//           const response = await genResult.response;
-      
-//           documentResponses.push({
-//             answer: response.text(),
-//             document_info: {
-//               name: document.name,
-//               date: docDate,
-//               url: document.url
-//         }
-//       });
-//     }
-
-//       return res.json({
-//       error: false,
-//       answers: documentResponses
-//     });
-//   }catch (error) {
-//     console.error("Document query error:", error);
-//     return res.status(500).json({
-//       error: true,
-//       message: "Failed to search documents",
-//       details: error.message
-//     });
-//   } finally {
-//     client.release();
-//   }
-// }
  
     // Otherwise handle as regular SQL query
     else {
@@ -338,11 +245,18 @@ app.post("/chat", async (req, res) => {
   }
 });
 
-// Extract project name more robustly
 function extractProjectName(query) {
-  const projectMatch = query.match(/(?:project|meeting)\s+([^\.,;?!]+)/i) || 
-                     query.match(/([^\.,;?!]+)\s+(?:project|meeting)/i);
-  return projectMatch ? projectMatch[1].trim().toLowerCase() : null;
+  // Remove question words and focus on the project name
+  const cleanedQuery = query.toLowerCase()
+    .replace(/who was present at /i, '')
+    .replace(/what was discussed in /i, '')
+    .replace(/meeting/i, '')
+    .replace(/minutes/i, '')
+    .trim();
+  
+  // Extract the main project name (first word)
+  const projectMatch = cleanedQuery.match(/^([a-z0-9]+)/i);
+  return projectMatch ? projectMatch[1].toLowerCase() : null;
 }
 // Add this preprocessing for document names
 function preprocessDocumentName(name) {
@@ -386,54 +300,6 @@ function generateColors(count) {
 }
 
 
-
-// Enhanced document text extraction
-// async function extractDocumentText(documentUrl) {
-//   try {
-//     let buffer;
-    
-//     // Handle local files
-//     if (documentUrl.startsWith('file://')) {
-//       buffer = await fs.readFile(documentUrl.replace('file://', ''));
-//     } 
-//     // Handle remote files
-//     else {
-//       const response = await fetch(documentUrl);
-//       if (!response.ok) throw new Error(`HTTP ${response.status}`);
-//       buffer = await response.buffer();
-//     }
-
-//     const ext = documentUrl.split('.').pop().toLowerCase();
-    
-//     switch (ext) {
-//       case 'pdf':
-//         const pdfData = await pdf(buffer);
-//         return pdfData.text;
-        
-//       case 'docx':
-//       case 'doc':
-//         const { value } = await mammoth.extractRawText({ buffer });
-//         return value;
-        
-//       case 'xlsx':
-//       case 'xls':
-//         const workbook = xlsx.read(buffer, { type: 'buffer' });
-//         return workbook.SheetNames.map(sheet => 
-//           xlsx.utils.sheet_to_csv(workbook.Sheets[sheet])
-//         ).join('\n\n');
-        
-//       case 'txt':
-//       case 'csv':
-//         return buffer.toString('utf8');
-        
-//       default:
-//         return buffer.toString('utf8');
-//     }
-//   } catch (error) {
-//     console.error("Text extraction failed:", error);
-//     return null;
-//   }
-// }
 async function extractDocumentText(documentUrl) {
   try {
     let buffer;
@@ -763,3 +629,104 @@ async function cleanupOldUploads(days = 1) {
     console.log(`Server running on http://localhost:${PORT}`);
   });
 })();
+
+
+
+//     // Process all matching documents
+//         const documentResponses = [];
+//         for (const document of result.rows) {
+//           const docDateMatch = document.name.match(/(\d{4}-\d{2}-\d{2})|(\w+\s+\d{1,2},\s+\d{4})/);
+//           const docDate = docDateMatch ? docDateMatch[0] : "unknown date";
+      
+//       // Extract document text (implement this function)
+//           const docText = await extractDocumentText(document.url);
+      
+//           const prompt = `
+//         Meeting Minutes Document: ${document.name}
+//         Date: ${docDate}
+//         Content: ${docText.substring(0, 5000)}... [truncated if long]
+        
+//         User Question: "${userPrompt}"
+        
+//         Provide ONLY the exact information requested in the question.
+//         If the information is not in the document, say "This information is not in the document."
+//         Be concise and directly answer the question.
+//       `;
+
+//           const genResult = await model.generateContent(prompt);
+//           const response = await genResult.response;
+      
+//           documentResponses.push({
+//             answer: response.text(),
+//             document_info: {
+//               name: document.name,
+//               date: docDate,
+//               url: document.url
+//         }
+//       });
+//     }
+
+//       return res.json({
+//       error: false,
+//       answers: documentResponses
+//     });
+//   }catch (error) {
+//     console.error("Document query error:", error);
+//     return res.status(500).json({
+//       error: true,
+//       message: "Failed to search documents",
+//       details: error.message
+//     });
+//   } finally {
+//     client.release();
+//   }
+// }
+
+
+// Enhanced document text extraction
+// async function extractDocumentText(documentUrl) {
+//   try {
+//     let buffer;
+    
+//     // Handle local files
+//     if (documentUrl.startsWith('file://')) {
+//       buffer = await fs.readFile(documentUrl.replace('file://', ''));
+//     } 
+//     // Handle remote files
+//     else {
+//       const response = await fetch(documentUrl);
+//       if (!response.ok) throw new Error(`HTTP ${response.status}`);
+//       buffer = await response.buffer();
+//     }
+
+//     const ext = documentUrl.split('.').pop().toLowerCase();
+    
+//     switch (ext) {
+//       case 'pdf':
+//         const pdfData = await pdf(buffer);
+//         return pdfData.text;
+        
+//       case 'docx':
+//       case 'doc':
+//         const { value } = await mammoth.extractRawText({ buffer });
+//         return value;
+        
+//       case 'xlsx':
+//       case 'xls':
+//         const workbook = xlsx.read(buffer, { type: 'buffer' });
+//         return workbook.SheetNames.map(sheet => 
+//           xlsx.utils.sheet_to_csv(workbook.Sheets[sheet])
+//         ).join('\n\n');
+        
+//       case 'txt':
+//       case 'csv':
+//         return buffer.toString('utf8');
+        
+//       default:
+//         return buffer.toString('utf8');
+//     }
+//   } catch (error) {
+//     console.error("Text extraction failed:", error);
+//     return null;
+//   }
+// }
