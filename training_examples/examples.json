@@ -54,7 +54,11 @@
     "Chart employee promotion timelines by gender (diversity analysis)",
     "Find seasonal patterns in product returns",
     "Show customer lifetime value by acquisition channel",
-    "List suppliers with on-time delivery rate below 90%"
+    "List suppliers with on-time delivery rate below 90%",
+    "Show me all customers from New York",
+    "List the top 5 products by sales",
+    "Count the number of orders per month in 2023",
+    "Show a chart of revenue by product category"
   ],
   "sql": [
     "SELECT d.name AS department_name, COUNT(e.id) AS employee_count FROM department d LEFT JOIN employee e ON d.id = e.department_id GROUP BY d.name",
@@ -111,6 +115,10 @@
     "SELECT gender, AVG(EXTRACT(DAY FROM (promotion_date - hire_date))/365) AS years_to_promotion FROM employees WHERE promotion_date IS NOT NULL GROUP BY gender",
     "SELECT EXTRACT(MONTH FROM return_date) AS month, COUNT(*) AS return_count FROM returns GROUP BY month ORDER BY month",
     "SELECT acquisition_channel, SUM(amount) / COUNT(DISTINCT customer_id) AS avg_lifetime_value FROM customers JOIN orders USING(customer_id) GROUP BY acquisition_channel",
-    "SELECT supplier_id, COUNT(CASE WHEN delivered_date <= promised_date THEN 1 END)::float / COUNT(*) * 100 AS on_time_pct FROM shipments GROUP BY supplier_id HAVING COUNT(CASE WHEN delivered_date <= promised_date THEN 1 END)::float / COUNT(*) * 100 < 90"
+    "SELECT supplier_id, COUNT(CASE WHEN delivered_date <= promised_date THEN 1 END)::float / COUNT(*) * 100 AS on_time_pct FROM shipments GROUP BY supplier_id HAVING COUNT(CASE WHEN delivered_date <= promised_date THEN 1 END)::float / COUNT(*) * 100 < 90",
+    "SELECT * FROM customers WHERE city ILIKE 'New York'",
+    "SELECT product_name, SUM(quantity) as total_sales FROM products JOIN order_details ON products.product_id = order_details.product_id GROUP BY product_name ORDER BY total_sales DESC LIMIT 5",
+    "SELECT TO_CHAR(order_date, 'YYYY-MM') as month, COUNT(*) as order_count FROM orders WHERE EXTRACT(YEAR FROM order_date) = 2023 GROUP BY month ORDER BY month",
+    "SELECT category_name as \"Product Category\", SUM(unit_price * quantity) as \"Revenue\" FROM categories JOIN products ON categories.category_id = products.category_id JOIN order_details ON products.product_id = order_details.product_id GROUP BY category_name"
   ]
 }

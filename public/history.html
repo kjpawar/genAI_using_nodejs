@@ -1,0 +1,755 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Chat History</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f5f5f5;
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+            background-color: white;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 12px;
+            text-align: left;
+        }
+        th {
+            background-color: #4CAF50;
+            color: white;
+            position: sticky;
+            top: 0;
+        }
+        tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        tr:hover {
+            background-color: #f1f1f1;
+        }
+        .answer-content {
+            max-height: 250px;
+            overflow-y: auto;
+            padding: 5px;
+        }
+        .controls {
+            margin-bottom: 20px;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        button {
+            padding: 8px 16px;
+            cursor: pointer;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            transition: background-color 0.3s;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        .search-box {
+            padding: 8px;
+            width: 300px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        #loadingIndicator {
+            margin: 20px;
+            text-align: center;
+            font-size: 18px;
+            color: #666;
+        }
+        
+        /* Chart styles */
+        .chart-container {
+            width: 100%;
+            height: 200px;
+            margin: 10px 0;
+        }
+        
+        /* Modal styles */
+        .chart-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.7);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .chart-modal-content {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            width: 80%;
+            max-width: 800px;
+            max-height: 80vh;
+            overflow: auto;
+            position: relative;
+        }
+        
+        .close-modal {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            color: #333;
+            font-size: 24px;
+            cursor: pointer;
+            background: none;
+            border: none;
+            padding: 5px;
+        }
+        
+        .view-chart-btn {
+            background: #2196F3;
+            color: white;
+            border: none;
+            padding: 8px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-top: 10px;
+            display: block;
+            width: 100%;
+            text-align: center;
+        }
+        
+        .view-chart-btn:hover {
+            background: #0b7dda;
+        }
+        
+        /* Document answer styles */
+        .document-answer {
+            margin-bottom: 10px;
+            padding: 10px;
+            background-color: #f8f8f8;
+            border-left: 3px solid #4CAF50;
+        }
+        
+        .document-answer strong {
+            color: #333;
+        }
+        
+        /* Responsive adjustments */
+        @media (max-width: 768px) {
+            table {
+                display: block;
+                overflow-x: auto;
+            }
+            
+            .controls {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            
+            .search-box {
+                width: auto;
+            }
+            
+            .chart-modal-content {
+                width: 95%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <h1>Chat History</h1>
+    
+    <div class="controls">
+        <input type="text" id="searchInput" class="search-box" placeholder="Search questions or answers...">
+        <button id="refreshBtn">Refresh</button>
+        <button id="clearSearchBtn">Clear Search</button>
+    </div>
+    
+    <table id="historyTable">
+        <thead>
+            <tr>
+                <th width="30%">Question</th>
+                <th width="70%">Answer</th>
+            </tr>
+        </thead>
+        <tbody id="historyBody">
+            <!-- History will be loaded here -->
+        </tbody>
+    </table>
+    
+    <div id="loadingIndicator">
+        Loading chat history...
+    </div>
+
+    <!-- Modal for full-size chart view -->
+    <div id="chartModal" class="chart-modal">
+        <div class="chart-modal-content">
+            <button class="close-modal">&times;</button>
+            <h2>Chart Details</h2>
+            <canvas id="modalChart"></canvas>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const historyBody = document.getElementById('historyBody');
+            const searchInput = document.getElementById('searchInput');
+            const refreshBtn = document.getElementById('refreshBtn');
+            const clearSearchBtn = document.getElementById('clearSearchBtn');
+            const loadingIndicator = document.getElementById('loadingIndicator');
+            const chartModal = document.getElementById('chartModal');
+            const modalChartCtx = document.getElementById('modalChart').getContext('2d');
+            
+            let allHistory = [];
+            let modalChart = null;
+            
+            function extractChartData(rawData) {
+                try {
+                    // First try to parse as complete JSON
+                    if (typeof rawData === 'string') {
+                        rawData = JSON.parse(rawData);
+                    }
+                    
+                    // Handle your specific format
+                    if (rawData.labels && rawData.datasets) {
+                        return {
+                            labels: rawData.labels,
+                            values: rawData.datasets[0].data,
+                            x_label: rawData.x_label || 'Department',
+                            y_label: rawData.y_label || 'Project Count',
+                            chart_type: rawData.suggestedChartType || 'pie',
+                            percentages: rawData.percentages || []
+                        };
+                    }
+                    
+                    // Handle alternative format seen in your screenshot
+                    const matches = rawData.match(/"labels":\[(.*?)\].*?"data":\[(.*?)\]/);
+                    if (matches) {
+                        const labels = matches[1].replace(/"/g, '').split(',');
+                        const values = matches[2].split(',').map(Number);
+                        return {
+                            labels: labels,
+                            values: values,
+                            x_label: 'Department',
+                            y_label: 'Project Count',
+                            chart_type: 'pie',
+                            percentages: rawData.percentages || []
+                        };
+                    }
+                    
+                    return null;
+                } catch (e) {
+                    console.error('Error extracting chart data:', e);
+                    return null;
+                }
+            }
+            // Generate colors for charts
+            function generateChartColors(count) {
+                const colors = [];
+                const hueStep = 360 / count;
+                for (let i = 0; i < count; i++) {
+                    colors.push(`hsl(${i * hueStep}, 70%, 60%)`);
+                }
+                return colors;
+            }
+            
+            // Render a mini chart in the table
+            function renderMiniChart(containerId, chartData) {
+                const ctx = document.getElementById(containerId).getContext('2d');
+                
+                // Determine chart type based on data
+                const chartType = chartData.chart_type || 
+                                 (chartData.labels.length > 5 ? 'bar' : 'pie');
+                
+                new Chart(ctx, {
+                    type: chartType,
+                    data: {
+                        labels: chartData.labels,
+                        datasets: [{
+                            label: chartData.y_label || 'Values',
+                            data: chartData.values,
+                            backgroundColor: generateChartColors(chartData.labels.length),
+                            borderWidth: 1
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: {
+                                display: chartType === 'pie',
+                                position: 'right'
+                            },
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        return `${context.label}: ${context.raw} (${chartData.percentages[context.dataIndex]})`;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+            
+            // Format different types of answers
+            // function formatAnswer(answer, rowId) {
+            //     try {
+            //         const parsed = JSON.parse(answer);
+                    
+            //         if (parsed.labels && parsed.values) {
+            //             // This is a chart response
+            //             const chartId = `miniChart-${rowId}`;
+            //             const containerId = `chartContainer-${rowId}`;
+                        
+            //             setTimeout(() => {
+            //                 if (document.getElementById(containerId)) {
+            //                     renderMiniChart(containerId, parsed);
+            //                 }
+            //             }, 100);
+                        
+            //             return `
+            //                 <div id="${containerId}" class="chart-container">
+            //                     <canvas id="${chartId}"></canvas>
+            //                 </div>
+            //                 <button class="view-chart-btn" data-chart-data='${JSON.stringify(parsed)}'>
+            //                     View Full Chart
+            //                 </button>
+            //             `;
+            //         }
+            //         else if (Array.isArray(parsed)) {
+            //             // Handle document responses array
+            //             return parsed.map(item => {
+            //                 if (typeof item === 'object') {
+            //                     return `
+            //                         <div class="document-answer">
+            //                             <strong>${item.document_info?.name || 'Document'}:</strong>
+            //                             <p>${item.answer}</p>
+            //                         </div>
+            //                     `;
+            //                 }
+            //                 return `<p>${item}</p>`;
+            //             }).join('');
+            //         }
+            //         return answer;
+            //     } catch (e) {
+            //         // Not JSON, return as plain text
+            //         return answer;
+            //     }
+            // }
+            function formatAnswer(answer, rowId) {
+                try {
+                    // First try to parse as JSON
+                    let parsed;
+                    try {
+                        parsed = typeof answer === 'string' ? JSON.parse(answer) : answer;
+                    } catch (e) {
+                        // If not JSON, check if it contains chart-like data
+                        if (answer.includes('labels') && answer.includes('data')) {
+                            const chartData = extractChartData(answer);
+                            if (chartData) {
+                                return renderChartElement(chartData, rowId);
+                            }
+                        }
+                        return answer; // Return as plain text
+                    }
+
+                    // Handle chart data
+                    const chartData = extractChartData(parsed);
+                    if (chartData) {
+                        return renderChartElement(chartData, rowId);
+                    }
+
+                    // Handle other answer types (document responses, etc.)
+                    if (Array.isArray(parsed)) {
+                        return parsed.map(item => {
+                            if (typeof item === 'object') {
+                                return `
+                                    <div class="document-answer">
+                                        <strong>${item.document_info?.name || 'Document'}:</strong>
+                                        <p>${item.answer}</p>
+                                    </div>
+                                `;
+                            }
+                            return `<p>${item}</p>`;
+                        }).join('');
+                    }
+
+                    return answer;
+                } catch (e) {
+                    console.error('Error formatting answer:', e);
+                    return answer;
+                }
+            }
+
+            // Function to render chart element
+            function renderChartElement(chartData, rowId) {
+                const chartId = `miniChart-${rowId}`;
+                const containerId = `chartContainer-${rowId}`;
+                
+                setTimeout(() => {
+                    if (document.getElementById(containerId)) {
+                        renderMiniChart(containerId, chartData);
+                    }
+                }, 100);
+                
+                return `
+                    <div id="${containerId}" class="chart-container">
+                        <canvas id="${chartId}"></canvas>
+                    </div>
+                    <button class="view-chart-btn" data-chart-data='${JSON.stringify(chartData)}'>
+                        View Full Chart
+                    </button>
+                    <div class="chart-meta">
+                        <p>Chart Type: ${chartData.chart_type}</p>
+                        <p>X-Axis: ${chartData.x_label}</p>
+                        <p>Y-Axis: ${chartData.y_label}</p>
+                    </div>
+                `;
+            }
+
+            
+            // Show full chart in modal
+            function showFullChart(chartData) {
+                chartModal.style.display = 'flex';
+                
+                // Destroy previous chart if exists
+                if (modalChart) {
+                    modalChart.destroy();
+                }
+                
+                // Determine chart type
+                const chartType = chartData.chart_type || 
+                                 (chartData.labels.length > 5 ? 'bar' : 'pie');
+                
+                // Create full-size chart
+                modalChart = new Chart(modalChartCtx, {
+                    type: chartType,
+                    data: {
+                        labels: chartData.labels,
+                        datasets: [{
+                            label: chartData.y_label || 'Values',
+                            data: chartData.values,
+                            backgroundColor: generateChartColors(chartData.labels.length),
+                            borderWidth: 1
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: true,
+                        plugins: {
+                            legend: {
+                                display: true,
+                                position: 'right'
+                            },
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        return `${context.label}: ${context.raw} (${chartData.percentages[context.dataIndex]})`;
+                                    }
+                                }
+                            },
+                            title: {
+                                display: true,
+                                text: 'Detailed Chart View'
+                            }
+                        }
+                    }
+                });
+            }
+            
+            // Load history data
+            async function loadHistory(searchTerm = '') {
+                loadingIndicator.style.display = 'block';
+                historyBody.innerHTML = '';
+                
+                try {
+                    const response = await fetch(`/chat-history?search=${encodeURIComponent(searchTerm)}`);
+                    const data = await response.json();
+                    allHistory = data.history;
+                    
+                    if (data.history.length === 0) {
+                        historyBody.innerHTML = `
+                            <tr>
+                                <td colspan="2" style="text-align: center;">No history found</td>
+                            </tr>
+                        `;
+                    } else {
+                        historyBody.innerHTML = data.history.map((item, index) => `
+                            <tr>
+                                <td>${item.user_question}</td>
+                                <td class="answer-content">
+                                    ${formatAnswer(item.bot_answer, index)}
+                                </td>
+                            </tr>
+                        `).join('');
+                    }
+                } catch (error) {
+                    console.error('Error loading history:', error);
+                    historyBody.innerHTML = `
+                        <tr>
+                            <td colspan="2" style="text-align: center; color: red;">
+                                Error loading history. Please try again.
+                            </td>
+                        </tr>
+                    `;
+                } finally {
+                    loadingIndicator.style.display = 'none';
+                }
+            }
+            
+            // Event listeners
+            searchInput.addEventListener('input', (e) => {
+                loadHistory(e.target.value);
+            });
+            
+            refreshBtn.addEventListener('click', () => {
+                loadHistory(searchInput.value);
+            });
+            
+            clearSearchBtn.addEventListener('click', () => {
+                searchInput.value = '';
+                loadHistory();
+            });
+            
+            // Handle chart modal close
+            document.querySelector('.close-modal').addEventListener('click', () => {
+                chartModal.style.display = 'none';
+                if (modalChart) {
+                    modalChart.destroy();
+                    modalChart = null;
+                }
+            });
+            
+            // Delegate click events for view chart buttons
+            document.addEventListener('click', (e) => {
+                if (e.target.classList.contains('view-chart-btn')) {
+                    const chartData = JSON.parse(e.target.getAttribute('data-chart-data'));
+                    showFullChart(chartData);
+                }
+            });
+            
+            // Close modal when clicking outside content
+            chartModal.addEventListener('click', (e) => {
+                if (e.target === chartModal) {
+                    chartModal.style.display = 'none';
+                    if (modalChart) {
+                        modalChart.destroy();
+                        modalChart = null;
+                    }
+                }
+            });
+            
+            // Initial load
+            loadHistory();
+        });
+    </script>
+</body>
+</html>
+
+
+
+
+
+
+
+
+
+<!-- <!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Chat History</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+        h1 {
+            color: #333;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 12px;
+            text-align: left;
+        }
+        th {
+            background-color: #f2f2f2;
+            position: sticky;
+            top: 0;
+        }
+        tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        tr:hover {
+            background-color: #f1f1f1;
+        }
+        .answer-content {
+            max-height: 150px;
+            overflow-y: auto;
+            padding: 5px;
+        }
+        .controls {
+            margin-bottom: 20px;
+            display: flex;
+            gap: 10px;
+        }
+        button {
+            padding: 8px 16px;
+            cursor: pointer;
+        }
+        .search-box {
+            padding: 8px;
+            width: 300px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Chat History</h1>
+    
+    <div class="controls">
+        <input type="text" id="searchInput" class="search-box" placeholder="Search questions or answers...">
+        <button id="refreshBtn">Refresh</button>
+        <button id="clearSearchBtn">Clear Search</button>
+    </div>
+    
+    <table id="historyTable">
+        <thead>
+            <tr>
+                <th width="30%">Question</th>
+                <th width="70%">Answer</th>
+            </tr>
+        </thead>
+        <tbody id="historyBody">
+             History will be loaded here -->
+        <!-- </tbody>
+    </table>
+    
+    <div id="loadingIndicator" style="margin: 20px; text-align: center;">
+        Loading history...
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const historyBody = document.getElementById('historyBody');
+            const searchInput = document.getElementById('searchInput');
+            const refreshBtn = document.getElementById('refreshBtn');
+            const clearSearchBtn = document.getElementById('clearSearchBtn');
+            const loadingIndicator = document.getElementById('loadingIndicator');
+            
+            let allHistory = [];
+            
+            // Function to format different answer types
+            function formatAnswer(answer) {
+                try {
+                    // Try to parse as JSON (for chart data or document responses)
+                    const parsed = JSON.parse(answer);
+                    
+                    if (Array.isArray(parsed)) {
+                        // Handle document responses array
+                        return parsed.map(item => {
+                            if (typeof item === 'object') {
+                                return `
+                                    <div class="document-answer">
+                                        <strong>${item.document_info?.name || 'Document'}:</strong>
+                                        <p>${item.answer}</p>
+                                    </div>
+                                `;
+                            }
+                            return `<p>${item}</p>`;
+                        }).join('');
+                    } else if (parsed.labels && parsed.datasets) {
+                        // Handle chart data
+                        return `
+                            <div class="chart-summary">
+                                <p>Chart: ${parsed.suggestedChartType || 'data'} visualization</p>
+                                <p>X-Axis: ${parsed.x_label}</p>
+                                <p>Y-Axis: ${parsed.y_label}</p>
+                                <p>Data Points: ${parsed.labels.length}</p>
+                            </div>
+                        `;
+                    }
+                    return answer;
+                } catch (e) {
+                    // Not JSON, return as plain text
+                    return answer;
+                }
+            }
+            
+            // Load history data
+            async function loadHistory(searchTerm = '') {
+                loadingIndicator.style.display = 'block';
+                historyBody.innerHTML = '';
+                
+                try {
+                    const response = await fetch(`/chat-history?search=${encodeURIComponent(searchTerm)}`);
+                    const data = await response.json();
+                    allHistory = data.history;
+                    
+                    if (data.history.length === 0) {
+                        historyBody.innerHTML = `
+                            <tr>
+                                <td colspan="2" style="text-align: center;">No history found</td>
+                            </tr>
+                        `;
+                    } else {
+                        historyBody.innerHTML = data.history.map(item => `
+                            <tr>
+                                <td>${item.user_question}</td>
+                                <td class="answer-content">${formatAnswer(item.bot_answer)}</td>
+                            </tr>
+                        `).join('');
+                    }
+                } catch (error) {
+                    console.error('Error loading history:', error);
+                    historyBody.innerHTML = `
+                        <tr>
+                            <td colspan="2" style="text-align: center; color: red;">
+                                Error loading history. Please try again.
+                            </td>
+                        </tr>
+                    `;
+                } finally {
+                    loadingIndicator.style.display = 'none';
+                }
+            }
+            
+            // Event listeners
+            searchInput.addEventListener('input', (e) => {
+                loadHistory(e.target.value);
+            });
+            
+            refreshBtn.addEventListener('click', () => {
+                loadHistory(searchInput.value);
+            });
+            
+            clearSearchBtn.addEventListener('click', () => {
+                searchInput.value = '';
+                loadHistory();
+            });
+            
+            // Initial load
+            loadHistory();
+        });
+    </script>
+</body>
+</html>  -->
