@@ -2,9 +2,11 @@
   "name": "nodejs_project",
   "version": "1.0.0",
   "main": "server.js",
+  "nodemonConfig": {
+    "ignore": ["schema_cache.json"]
+  },
   "scripts": {
-    "start": "node server.js",
-    "dev": "nodemon server.js"
+    "start": "node server.js"
   },
   "author": "",
   "license": "ISC",

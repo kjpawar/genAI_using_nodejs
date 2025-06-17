@@ -22,7 +22,28 @@ const transporter = nodemailer.createTransport({
   },
 });
 
+// Cache for table structure
+let tableStructureCache = null;
+let lastSchemaFetchTime = 0;
+const SCHEMA_CACHE_DURATION = 3600000; // 1 hour cache duration
+const CACHE_FILE = path.join(__dirname, 'schema_cache.json');
+
 async function fetchTableStructure() {
+   // Try to load from file first
+  try {
+    if (fs.existsSync(CACHE_FILE)) {
+      const cache = JSON.parse(fs.readFileSync(CACHE_FILE));
+      if (Date.now() - cache.lastUpdated < SCHEMA_CACHE_DURATION) {
+        console.log('Using persisted cache');
+        tableStructureCache = cache.schema;
+        lastSchemaFetchTime = cache.lastUpdated;
+        return tableStructureCache;
+      }
+    }
+  } catch (err) {
+    console.log('Cache file corrupted, fetching fresh');
+  }
+
   const pool = new Pool({
     host: process.env.DB_HOST,
     port: process.env.DB_PORT,
@@ -33,7 +54,7 @@ async function fetchTableStructure() {
 
   try {
     const client = await pool.connect();
-    let tableStructure = "You must assume the following PostgreSQL database schema:\n\nTables:\n";
+    let structure = "You must assume the following PostgreSQL database schema:\n\nTables:\n";
 
     // Get tables
     const tablesRes = await client.query(`
@@ -44,7 +65,7 @@ async function fetchTableStructure() {
     
     for (const table of tablesRes.rows) {
       const tableName = table.table_name;
-      tableStructure += `\n${tableName}\n`;
+      structure += `\n${tableName}\n`;
 
       // Get columns
       const columnsRes = await client.query(`
@@ -54,7 +75,7 @@ async function fetchTableStructure() {
       `, [tableName]);
 
       for (const column of columnsRes.rows) {
-        tableStructure += `- ${column.column_name} (${column.data_type})\n`;
+        structure += `- ${column.column_name} (${column.data_type})\n`;
       }
     }
 
@@ -100,13 +121,24 @@ async function fetchTableStructure() {
     }
 
     client.release();
-    return tableStructure;
+    
+    // Update cache
+    // Update cache
+    const currentTime = Date.now();
+    tableStructureCache = structure;
+    lastSchemaFetchTime = currentTime;
+    fs.writeFileSync(CACHE_FILE, JSON.stringify({
+      schema: tableStructureCache,
+      lastUpdated: lastSchemaFetchTime
+    }));
+    return structure;
   } catch (error) {
     console.error("Error fetching table structure:", error);
-    return "";
+    return tableStructureCache || ""; // Return cached version if available, even if expired
   } finally {
     await pool.end();
   }
+  
 }
 
 async function loadTrainingExamples() {
@@ -160,13 +192,19 @@ async function addTrainingExamples(newNl, newSql) {
   return added;
 }
 
+// Pre-fetch the table structure when the module loads
+let tableStructurePromise = fetchTableStructure();
+
 async function getChatCompletion(messages, chartMode = false) {
   try {
     const userMessage = messages[messages.length - 1].content;
     const examples = await loadTrainingExamples();
     
+    // Use the pre-fetched or cached table structure
+    const tableStructure = await tableStructurePromise;
+    
     let prompt = `Database Expert Instructions:
-${await fetchTableStructure()}
+${tableStructure}
 
 Recent Examples:
 `;
@@ -203,12 +241,18 @@ A: `;
   }
 }
 
+// Function to manually refresh schema if needed
+async function refreshSchema() {
+  tableStructurePromise = fetchTableStructure();
+  return tableStructurePromise;
+}
+
 module.exports = {
   getChatCompletion,
   addTrainingExamples,
   loadTrainingExamples,
   fetchTableStructure,
+  refreshSchema,
   model
 };
-
 
