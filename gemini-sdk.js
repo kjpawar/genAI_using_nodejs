@@ -115,14 +115,13 @@ async function fetchTableStructure() {
       };
 
       await transporter.sendMail(mailOptions);
-      console.log("✅ Alert Email sent successfully.");
+      console.log(" Alert Email sent successfully.");
     } else {
-      console.log("✅ Revenue is healthy, no email sent.");
+      console.log(" Revenue is OK, no email sent.");
     }
 
     client.release();
     
-    // Update cache
     // Update cache
     const currentTime = Date.now();
     tableStructureCache = structure;

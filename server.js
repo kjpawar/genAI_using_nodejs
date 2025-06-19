@@ -44,8 +44,7 @@ cloudinary.config({
 
 // Updated document query detection function
 function isDocumentQuery(message) {
-  // const docKeywords = ['meeting', 'minutes', 'mom', 'document', 'project'];
-  // return docKeywords.some(keyword => message.toLowerCase().includes(keyword));
+  
   const lowerMsg = message.toLowerCase();
   
   // More specific document-related phrases
@@ -58,12 +57,7 @@ function isDocumentQuery(message) {
     'risks identified', 'accountability', 'progress update'
   ];
 
-  // const hasMeetingContext = lowerMsg.includes('meeting') || 
-  //                         lowerMsg.includes('review') ||
-  //                         lowerMsg.includes('discussion') ||
-  //                         lowerMsg.includes('minutes');
-  // return docPhrases.some(phrase => lowerMsg.includes(phrase)) || 
-  //        (hasMeetingContext && !lowerMsg.includes('chart'));
+
   return docPhrases.some(phrase => lowerMsg.includes(phrase)
   ) || /(meeting|review|discussion|minutes)\s+(for|about|on)/i.test(message);       
 }
@@ -131,11 +125,6 @@ app.post("/chat", async (req, res) => {
  
     // Then check for document query
     else if (isDocumentQuery(userPrompt)) {
-      // const projectMatch = userPrompt.match(/(?:project|meeting|review)\s+([^\.,;?!]+)/i) || 
-      //                 userPrompt.match(/([^\.,;?!]+)\s+(?:project|meeting|review)/i);
-  
-      // const projectName = projectMatch ? projectMatch[1].trim() : null;
-      // const dateMatch = userPrompt.match(/\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2}(?:,?\s+\d{4})?\b/i);
       const projectName = extractProjectName(userPrompt);
       const dateMatch = userPrompt.match(/\b\d{4}-\d{2}-\d{2}\b/) || 
       userPrompt.match(/\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2},?\s+\d{4}\b/i);
@@ -180,43 +169,7 @@ app.post("/chat", async (req, res) => {
             ORDER BY created_at DESC 
             LIMIT 3`;
         }
-//           if (dateMatch) {
-//   query = `SELECT * FROM documents 
-//            WHERE name % $1
-//            ORDER BY created_at DESC LIMIT 3`;
-//   params = [dateMatch[0]];
-//  } else if (projectName && dateMatch) {
-//   query = `SELECT * FROM documents 
-//            WHERE name % $1 AND name % $2
-//            ORDER BY name <-> $3 LIMIT 1`;
-//   params = [
-//     projectName,
-//     dateMatch[0],
-//     `${projectName} ${dateMatch[0]}`
-//   ];
-//  }else if (projectName) {
-//   query = `SELECT * FROM documents 
-//            WHERE name ILIKE $1
-//            ORDER BY name <-> $2 DESC LIMIT 3`;
-//   params = [`%${projectName}%`, `${projectName}-meeting%`];
 
-//  else if (projectName) { 
-//     query = `SELECT * FROM documents 
-//          WHERE name % $1
-//          ORDER BY name <-> $2 DESC LIMIT 3`;
-//     params = [projectName, `${projectName}-meeting%`];      //where name ILIKE matrimony%
-  // query = `SELECT * FROM documents 
-  //          WHERE name ILIKE $1                  
-  //          ORDER BY name <-> $1 LIMIT 3`;
-  // params = [`${projectName}%`];
-  //params = [`${projectName}%`]; // ✅ interpolated template literal
-
-// } else {
-//   query = `SELECT * FROM documents 
-//            WHERE name % $1
-//            ORDER BY created_at DESC LIMIT 3`;
-//   params = ['meeting'];
-// }
           console.log("Executing document query:", query);
           console.log("With parameters:", params);
         

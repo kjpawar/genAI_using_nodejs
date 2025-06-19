@@ -305,51 +305,7 @@
                 });
             }
             
-            // Format different types of answers
-            // function formatAnswer(answer, rowId) {
-            //     try {
-            //         const parsed = JSON.parse(answer);
-                    
-            //         if (parsed.labels && parsed.values) {
-            //             // This is a chart response
-            //             const chartId = `miniChart-${rowId}`;
-            //             const containerId = `chartContainer-${rowId}`;
-                        
-            //             setTimeout(() => {
-            //                 if (document.getElementById(containerId)) {
-            //                     renderMiniChart(containerId, parsed);
-            //                 }
-            //             }, 100);
-                        
-            //             return `
-            //                 <div id="${containerId}" class="chart-container">
-            //                     <canvas id="${chartId}"></canvas>
-            //                 </div>
-            //                 <button class="view-chart-btn" data-chart-data='${JSON.stringify(parsed)}'>
-            //                     View Full Chart
-            //                 </button>
-            //             `;
-            //         }
-            //         else if (Array.isArray(parsed)) {
-            //             // Handle document responses array
-            //             return parsed.map(item => {
-            //                 if (typeof item === 'object') {
-            //                     return `
-            //                         <div class="document-answer">
-            //                             <strong>${item.document_info?.name || 'Document'}:</strong>
-            //                             <p>${item.answer}</p>
-            //                         </div>
-            //                     `;
-            //                 }
-            //                 return `<p>${item}</p>`;
-            //             }).join('');
-            //         }
-            //         return answer;
-            //     } catch (e) {
-            //         // Not JSON, return as plain text
-            //         return answer;
-            //     }
-            // }
+            
             function formatAnswer(answer, rowId) {
                 try {
                     // First try to parse as JSON

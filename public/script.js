@@ -43,8 +43,6 @@ function renderChart(chartData) {
           label: (context) => {
             const label = context.label || '';
             const value = context.raw;
-            // const percentage = chartData.percentages[context.dataIndex];
-            // return `${label}: ${value} (${percentage})`;
             const percentage = chartData.percentages?.[context.dataIndex] || '';
             return `${label}: ${value}${percentage ? ` (${percentage})` : ''}`;
           }
@@ -52,13 +50,6 @@ function renderChart(chartData) {
       },
       datalabels: {
         formatter: (value, ctx) => {
-          // return chartData.percentages[ctx.dataIndex];
-          // Show both value and percentage for pie charts
-          // if (chartType === 'pie') {
-          //   return `${value}\n(${chartData.percentages[ctx.dataIndex]})`;
-          // }
-          // // For other chart types, just show the value
-          // return value;
 
           // For all chart types, show both value and percentage if available
           const percentage = chartData.percentages?.[ctx.dataIndex] || '';
@@ -82,7 +73,6 @@ function renderChart(chartData) {
             return context.chart.config.type === 'pie' ? 14 : 12;
           }
         },
-        // display: chartType === 'pie' ? 'auto' : 'auto'
         display: 'auto',
         anchor: 'center',
         align: 'center'
@@ -122,8 +112,6 @@ function renderChart(chartData) {
       rotation: -90,
       plugins: {
         datalabels: {
-          // align: 'center',
-          // anchor: 'center',
           formatter: (value, ctx) => {
             return `${ctx.chart.data.labels[ctx.dataIndex]}-${value}\n${chartData.percentages[ctx.dataIndex]}`;
         },
