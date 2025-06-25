@@ -5,157 +5,174 @@ const chartCanvas = document.getElementById('chart');
 const documentUploadBtn = document.getElementById('uploadDocumentBtn');
 const documentUploadInput = document.getElementById('documentUpload');
 const documentUploadStatus = document.getElementById('documentUploadStatus');
-
-
+const uploadBtn = document.getElementById('uploadBtn');
+const datasetUpload = document.getElementById('datasetUpload');
 
 let chart;
 let messages = [];
+let ws; // WebSocket connection
 
-// Helper function to detect chart type
-function detectChartType(chartData) {
-    const xLabels = chartData.x;
-    if (xLabels.every(label => /^\d{4}$/.test(label) || /^\d{4}-\d{2}-\d{2}$/.test(label))) {
-        return 'line';
-    } else if (xLabels.length <= 5) {
-        return 'pie';
-    } else {
-        return 'bar';
+// ====================== WEBSOCKET HANDLING ======================
+function initWebSocket() {
+  // Connect to WebSocket server (ws:// for HTTP, wss:// for HTTPS)
+  ws = new WebSocket(`ws://${window.location.host}`);
+
+  ws.onopen = () => {
+    console.log('WebSocket connection established');
+  };
+
+  ws.onmessage = (event) => {
+    const data = JSON.parse(event.data);
+    console.log('Received:', data);
+
+    const loadingDiv = document.querySelector('.spinner-container');
+    if (loadingDiv) loadingDiv.remove();
+
+    if (data.error) {
+      showError(data.message || data.human_answer);
+      return;
     }
-}
 
-function renderChart(chartData) {
-  if (chart) chart.destroy();
-  chartCanvas.style.display = 'block';
-
-  // Determine final chart type (respect suggested type or auto-detect)
-  const chartType = determineFinalChartType(chartData);
-
-  // Common configuration
-  const commonConfig = {
-    responsive: true,
-    maintainAspectRatio: false,
-    plugins: {
-      legend: {
-        position: 'right',
-      },
-      tooltip: {
-        callbacks: {
-          label: (context) => {
-            const label = context.label || '';
-            const value = context.raw;
-            const percentage = chartData.percentages?.[context.dataIndex] || '';
-            return `${label}: ${value}${percentage ? ` (${percentage})` : ''}`;
-          }
-        }
-      },
-      datalabels: {
-        formatter: (value, ctx) => {
-
-          // For all chart types, show both value and percentage if available
-          const percentage = chartData.percentages?.[ctx.dataIndex] || '';
-          if (percentage) {
-            return `${value}\n(${percentage})`;
-          }
-          return value;
-        },
-        color: function(context) {
-          // For pie charts, use white text for better contrast
-          if (context.chart.config.type === 'pie') {
-            return '#fff';
-          }
-          // For other charts, use dark text
-          return '#333';
-        },
-        font: {
-          weight: 'bold',
-          size: function(context) {
-            // Smaller font for bar/line charts to prevent crowding
-            return context.chart.config.type === 'pie' ? 14 : 12;
-          }
-        },
-        display: 'auto',
-        anchor: 'center',
-        align: 'center'
-      }
+    switch (data.type) {
+      case 'chart':
+        renderChartData(data);
+        break;
+      case 'document':
+        showDocumentResults(data);
+        break;
+      case 'sql':
+        showSQLResults(data);
+        break;
+      default:
+        showError('Unknown response type');
     }
   };
 
-  // Type-specific configurations
-  const typeSpecificConfig = {
-    bar: {
-      scales: {
-        y: {
-          beginAtZero: true,
-          title: {
-            display: true,
-            text: chartData.y_label,
-            
-          }
-        },
-        x: {
-          title: {
-            display: true,
-            text: chartData.x_label,
-            
-          }
-        }
-      },
-      plugins: {
-        datalabels: {
-          anchor: 'end',
-          align: 'top'
-        }
-      }
-    },
-    pie: {
-      circumference: 360,
-      rotation: -90,
-      plugins: {
-        datalabels: {
-          formatter: (value, ctx) => {
-            return `${ctx.chart.data.labels[ctx.dataIndex]}-${value}\n${chartData.percentages[ctx.dataIndex]}`;
-        },
-        color: '#fff'
-      }
-    }
-    },
-    line: {
-      scales: {
-        y: {
-          beginAtZero: true,
-          title: {
-            display: true,
-            text: chartData.y_label
-          }
-        },
-        x: {
-          // type: 'time',
-          type: chartData.labels.every(isDateLike) ? 'time' : 'category',
-          time: {
-            parser: 'YYYY-MM-DD',
-            tooltipFormat: 'll'
-          },
-          title: {
-            display: true,
-            text: chartData.x_label
-          }
-        }
-      },
-      elements: {
-        line: {
-          tension: 0.4
-        }
-      },
-      plugins: {
-        datalabels: {
-          anchor: 'end',
-          align: 'top'
-        }
-      }
-   }
-};
+  ws.onclose = () => {
+    console.log('WebSocket disconnected - attempting reconnect...');
+    setTimeout(initWebSocket, 3000); // Reconnect after 3 seconds
+  };
 
-  // Create the chart
+  ws.onerror = (error) => {
+    console.error('WebSocket error:', error);
+    showError('Connection error - falling back to HTTP');
+    // Fallback to HTTP if WebSocket fails
+    sendButton.onclick = sendViaHTTP;
+  };
+}
+
+// ====================== MESSAGE HANDLING ======================
+let isSending=false;
+function sendMessage() {
+  if(isSending) return;
+  isSending=true;
+  const message = userInput.value.trim();
+  userInput.value = '';
+  if (!message) {
+    isSending=false;
+    return;
+  }
+  addMessageToChat('user', message);
+  userInput.value = '';
+
+  showLoadingIndicator();
+  try {
+    if (ws?.readyState === WebSocket.OPEN) {
+      // Send ONLY the new message, not the full history
+      ws.send(JSON.stringify({
+        type: 'chat',
+        messages: [{ role: 'user', content: message }] // No duplicates
+      }));
+    } else {
+      sendViaHTTP();
+    }
+  } finally {
+    isSending = false;
+  }
+}
+  // if (ws && ws.readyState === WebSocket.OPEN) {
+  //   messages.push({ role: 'user', content: message });
+  //   ws.send(JSON.stringify({
+  //     type: 'chat',
+  //     messages: messages
+  //   }));
+  // } else {
+  //   sendViaHTTP();
+  // }
+
+
+// HTTP fallback
+async function sendViaHTTP() {
+  const message = userInput.value.trim();
+  if (!message) return;
+
+  try {
+    const response = await fetch('/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages: [...messages, { role: 'user', content: message }] })
+    });
+    
+    const data = await response.json();
+    handleResponse(data);
+  } catch (error) {
+    showError(error.message);
+  }
+}
+
+// ====================== UI UPDATES ======================
+function addMessageToChat(role, content) {
+  messages.push({ role, content });
+  const messageDiv = document.createElement('div');
+  messageDiv.className = role === 'user' ? 'user-message' : 'bot-message';
+  messageDiv.innerHTML = `<b>${role === 'user' ? 'You' : 'Bot'}:</b> ${content}`;
+  chatBox.appendChild(messageDiv);
+  chatBox.scrollTop = chatBox.scrollHeight;
+}
+
+function showLoadingIndicator() {
+  const loadingDiv = document.createElement('div');
+  loadingDiv.className = 'spinner-container';
+  loadingDiv.innerHTML = '<div class="spinner"></div>';
+  chatBox.appendChild(loadingDiv);
+  chatBox.scrollTop = chatBox.scrollHeight;
+}
+
+function showError(message) {
+  const errorDiv = document.createElement('div');
+  errorDiv.className = 'error-message';
+  errorDiv.innerHTML = `<b>Error:</b> ${message}`;
+  chatBox.appendChild(errorDiv);
+  chatBox.scrollTop = chatBox.scrollHeight;
+}
+
+// ====================== RESPONSE HANDLERS ======================
+function handleResponse(data) {
+  if (data.error) {
+    showError(data.human_answer || data.message);
+    return;
+  }
+
+  if (data.chart_data) {
+    renderChartData(data);
+  } else if (data.answers) {
+    showDocumentResults(data);
+  } else {
+    showSQLResults(data);
+  }
+}
+
+function renderChartData(data) {
+  // Destroy previous chart if exists
+  if (chart) chart.destroy();
+
+  const chartData = data.chart_data;
+  chartCanvas.style.display = 'block';
+
+  // Prepare data for Chart.js
+  const chartType = determineChartType(chartData);
+  const colors = generateChartColors(chartData.labels.length);
+
   chart = new Chart(chartCanvas, {
     type: chartType,
     data: {
@@ -163,27 +180,70 @@ function renderChart(chartData) {
       datasets: [{
         label: chartData.datasets[0].label,
         data: chartData.datasets[0].data,
-        backgroundColor: chartData.datasets[0].backgroundColor,
-        borderColor: chartType === 'line' ? '#3498db' : chartData.datasets[0].borderColor,
-        borderWidth: chartData.datasets[0].borderWidth,
-        fill: chartType === 'line'
+        backgroundColor: colors,
+        borderColor: '#333',
+        borderWidth: 1
       }]
     },
-    options: {
-      ...commonConfig,
-      ...typeSpecificConfig[chartType]
-    },
-    plugins: [ChartDataLabels]
+    options: getChartOptions(chartType, chartData)
   });
+
+  addMessageToChat('bot', `Here's your chart: ${data.human_answer || ''}`);
 }
 
-function determineFinalChartType(chartData) {
-  // If server suggested a type, use that
+function showDocumentResults(data) {
+  let html = '';
+  data.answers.forEach(answer => {
+    const cleanAnswer = answer.answer
+      .replace(/\*\*/g, '')
+      .replace(/-\s/g, '<br>- ')
+      .trim();
+    
+    html += `
+      <div class="document-response">
+        <b>From ${answer.document_info.name}:</b>
+        <div class="document-answer">${cleanAnswer}</div>
+        <small>Source: ${answer.document_info.url}</small>
+      </div>
+    `;
+  });
+  
+  const container = document.createElement('div');
+  container.className = 'bot-message';
+  container.innerHTML = html;
+  chatBox.appendChild(container);
+  chatBox.scrollTop = chatBox.scrollHeight;
+}
+
+function showSQLResults(data) {
+  let formattedResult = "";
+  if (data.db_result?.rows?.length > 0) {
+    data.db_result.rows.forEach(row => {
+      formattedResult += Object.values(row).join(' | ') + "<br>";
+    });
+  } else {
+    formattedResult = "No data found.";
+  }
+
+  const resultDiv = document.createElement('div');
+  resultDiv.className = 'bot-message';
+  resultDiv.innerHTML = `
+    <div><b>SQL Query:</b> <code>${data.sql_query}</code></div>
+    <div><b>Results:</b><br>${formattedResult}</div>
+    <div><b>Summary:</b> ${data.human_answer}</div>
+  `;
+  chatBox.appendChild(resultDiv);
+  chatBox.scrollTop = chatBox.scrollHeight;
+}
+
+// ====================== CHART UTILITIES ======================
+function determineChartType(chartData) {
+  // Use server suggestion if available
   if (chartData.suggestedChartType) {
     return chartData.suggestedChartType;
   }
   
-  // Auto-detect based on data characteristics
+  // Auto-detect based on data
   const isDate = chartData.labels.some(label => isDateLike(label));
   const fewCategories = chartData.labels.length <= 5;
   
@@ -197,169 +257,144 @@ function isDateLike(value) {
          /^\w+ \d{1,2}, \d{4}$/.test(value) ||
          /^\d{1,2}\/\d{1,2}\/\d{4}$/.test(value);
 }
- 
-// Document upload handler
-documentUploadBtn.addEventListener('click', async () => {
-    if (!documentUploadInput.files.length) return;
-    
-    documentUploadStatus.innerHTML = '<span class="uploading">Uploading document...</span>';
-    
-    try {
-        const formData = new FormData();
-        formData.append('document', documentUploadInput.files[0]);
-        
-        const res = await fetch('/upload-document', {
-            method: 'POST',
-            body: formData
-        });
-        
-        const result = await res.json();
-        
-        if (result.success) {
-            documentUploadStatus.innerHTML = `
-                <span class="success">✓ Document uploaded successfully!</span>
-                <div>Name: ${result.document.name}</div>
-                <div>ID: ${result.document.id}</div>
-            `;
-            
-            // Add a system message about the uploaded document
-            chatBox.innerHTML += `
-                <div class="system-message">
-                    <b>System:</b> Document "${result.document.name}" uploaded successfully. 
-                    You can now ask questions about it.
-                </div>
-            `;
-            chatBox.scrollTop = chatBox.scrollHeight;
-        } else {
-            documentUploadStatus.innerHTML = '<span class="error">✗ Failed to upload document</span>';
-        }
-    } catch (err) {
-        documentUploadStatus.innerHTML = `<span class="error">✗ ${err.message}</span>`;
-    }
-});
 
-// Main chat handler
-sendButton.addEventListener('click', async () => {
-    const message = userInput.value.trim();
-    if (!message) return;
-
-    messages.push({ role: 'user', content: message });
-    chatBox.innerHTML += `<div><b>You:</b> ${message}</div>`;
-
-    const loadingMessageId = `loading-${Date.now()}`;
-    chatBox.innerHTML += `<div id="${loadingMessageId}"><div class="spinner"></div></div>`;
-    chatBox.scrollTop = chatBox.scrollHeight;
-
-    try {
-        const response = await fetch('/chat', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ messages })
-        });
-
-        const data = await response.json();
-        const loadingDiv = document.getElementById(loadingMessageId);
-        if (loadingDiv) loadingDiv.remove();
-
-        if (data.error) {
-        chatBox.innerHTML += `<div class="error-message"><b>Error:</b> ${data.human_answer || data.message}</div>`;
-         } else if (data.answers) {
-        // Handle document responses
-        data.answers.forEach(answer => {
-            const cleanAnswer = answer.answer
-                .replace(/\*\*/g, '') // Remove markdown bold
-                .replace(/-\s/g, '<br>- ') // Convert list to HTML
-                .trim();
-            
-            chatBox.innerHTML += `
-                <div class="document-response">
-                    <b>From ${answer.document_info.name}:</b>
-                    <div class="document-answer">${cleanAnswer}</div>
-                    <small>Source: ${answer.document_info.url}</small>
-                </div>
-            `;
-        });
-        }
-      
-            // Handle chart responses
-            else if (data.chart_data) {
-                chatBox.innerHTML += `<div><b>Chart Data JSON:</b> <code>${JSON.stringify(data.chart_data, null, 2)}</code></div>`;
-                renderChart(data.chart_data);
-            } 
-            // Handle regular SQL query responses
-            else {
-                let formattedResult = "";
-                if (data.db_result && data.db_result.rows.length > 0) {
-                    data.db_result.rows.forEach(row => {
-                        formattedResult += Object.values(row).join(' | ') + "\n";
-                    });
-                } else {
-                    formattedResult = "No data found.";
-                }
-
-                chatBox.innerHTML += `
-                    <div><b>SQL Query:</b> <code>${data.sql_query}</code></div>
-                    <div><b>Result:</b><br>${formattedResult}</div>
-                    <div><b>Answer:</b> <code>${data.human_answer}</code></div>
-                `;
-            }
-        
-
-          chatBox.scrollTop = chatBox.scrollHeight;
-          }catch (error) {
-        console.error('Error:', error);
-        const loadingDiv = document.getElementById(loadingMessageId);
-        if (loadingDiv) loadingDiv.innerHTML = '<i>Error fetching response.</i>';
-    }
-
-    userInput.value = '';
-});
-
-// Update training stats
-async function updateTrainingStats() {
-    const res = await fetch('/training-status');
-    const data = await res.json();
-    document.getElementById('exampleCount').textContent = data.example_count;
-    if (data.last_updated) {
-        const date = new Date(data.last_updated * 1000);
-        document.getElementById('lastTrained').textContent = date.toLocaleString();
-    }
+function generateChartColors(count) {
+  const colors = [];
+  const hueStep = 360 / count;
+  for (let i = 0; i < count; i++) {
+    colors.push(`hsl(${i * hueStep}, 70%, 60%)`);
+  }
+  return colors;
 }
 
-// Upload handler for training data
-document.getElementById('uploadBtn').addEventListener('click', async () => {
-    const fileInput = document.getElementById('datasetUpload');
-    if (!fileInput.files.length) return;
-    
-    const statusDiv = document.getElementById('uploadStatus');
-    statusDiv.innerHTML = '<span class="uploading">Processing...</span>';
-    
-    try {
-        const formData = new FormData();
-        formData.append('file', fileInput.files[0]);
-        
-        const res = await fetch('/upload-dataset', {
-            method: 'POST',
-            body: formData
-        });
-        
-        const result = await res.json();
-        
-        if (result.status === "exists") {
-            statusDiv.innerHTML = '<span class="warning">ℹ️ Model already knows this dataset</span>';
-        } else if (result.added > 0) {
-            statusDiv.innerHTML = `<span class="success">✓ Added ${result.added} new examples</span>`;
-        } else {
-            statusDiv.innerHTML = '<span class="warning">⚠️ No new examples added</span>';
+function getChartOptions(chartType, chartData) {
+  const commonOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: { position: 'right' },
+      tooltip: {
+        callbacks: {
+          label: (context) => {
+            const label = context.label || '';
+            const value = context.raw;
+            const percentage = chartData.percentages?.[context.dataIndex] || '';
+            return `${label}: ${value}${percentage ? ` (${percentage})` : ''}`;
+          }
         }
-        
-        updateTrainingStats();
-    } catch (err) {
-        statusDiv.innerHTML = `<span class="error">✗ ${err.message}</span>`;
+      }
     }
+  };
+
+  // Type-specific options
+  if (chartType === 'line') {
+    return {
+      ...commonOptions,
+      scales: {
+        y: { beginAtZero: true, title: { display: true, text: chartData.y_label } },
+        x: { 
+          type: 'time',
+          time: { parser: 'YYYY-MM-DD', tooltipFormat: 'll' },
+          title: { display: true, text: chartData.x_label }
+        }
+      }
+    };
+  }
+
+  return commonOptions;
+}
+
+// ====================== DOCUMENT UPLOAD ======================
+documentUploadBtn.addEventListener('click', async () => {
+  if (!documentUploadInput.files.length) return;
+  
+  documentUploadStatus.innerHTML = '<span class="uploading">Uploading document...</span>';
+  
+  try {
+    const formData = new FormData();
+    formData.append('document', documentUploadInput.files[0]);
+    
+    const res = await fetch('/upload-document', {
+      method: 'POST',
+      body: formData
+    });
+    
+    const result = await res.json();
+    
+    if (result.success) {
+      documentUploadStatus.innerHTML = `
+        <span class="success">✓ Document uploaded!</span>
+        <div>Name: ${result.document.name}</div>
+      `;
+      addMessageToChat('system', `Document "${result.document.name}" uploaded successfully.`);
+    } else {
+      documentUploadStatus.innerHTML = '<span class="error">✗ Upload failed</span>';
+    }
+  } catch (err) {
+    documentUploadStatus.innerHTML = `<span class="error">✗ ${err.message}</span>`;
+  }
 });
 
-// Initialize
-updateTrainingStats();
+// ====================== TRAINING DATA UPLOAD ======================
+uploadBtn.addEventListener('click', async () => {
+  if (!datasetUpload.files.length) return;
+  
+  const statusDiv = document.getElementById('uploadStatus');
+  statusDiv.innerHTML = '<span class="uploading">Processing dataset...</span>';
+  
+  try {
+    const formData = new FormData();
+    formData.append('file', datasetUpload.files[0]);
+    
+    const res = await fetch('/upload-dataset', {
+      method: 'POST',
+      body: formData
+    });
+    
+    const result = await res.json();
+    
+    if (result.status === "exists") {
+      statusDiv.innerHTML = '<span class="warning">ℹ️ Dataset already exists</span>';
+    } else if (result.added > 0) {
+      statusDiv.innerHTML = `<span class="success">✓ Added ${result.added} examples</span>`;
+      updateTrainingStats();
+    } else {
+      statusDiv.innerHTML = '<span class="warning">⚠️ No new examples added</span>';
+    }
+  } catch (err) {
+    statusDiv.innerHTML = `<span class="error">✗ ${err.message}</span>`;
+  }
+});
+
+// ====================== TRAINING STATUS ======================
+async function updateTrainingStats() {
+  const res = await fetch('/training-status');
+  const data = await res.json();
+  document.getElementById('exampleCount').textContent = data.example_count;
+  
+  if (data.last_updated) {
+    const date = new Date(data.last_updated * 1000);
+    document.getElementById('lastTrained').textContent = date.toLocaleString();
+  }
+}
+
+// ====================== INITIALIZATION ======================
+document.addEventListener('DOMContentLoaded', () => {
+  // Initialize WebSocket
+  initWebSocket();
+
+  // Set up event listeners
+  // sendButton.addEventListener('click', sendMessage);
+  userInput.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') sendMessage();
+  });
+
+  // Load initial training stats
+  updateTrainingStats();
+});
+
+
+
+
 
 

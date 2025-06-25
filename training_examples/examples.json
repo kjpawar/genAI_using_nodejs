@@ -58,7 +58,22 @@
     "Show me all customers from New York",
     "List the top 5 products by sales",
     "Count the number of orders per month in 2023",
-    "Show a chart of revenue by product category"
+    "Show a chart of revenue by product category",
+    "Show all customers from California",
+    "List the top 3 most expensive products",
+    "Count how many orders were placed last month",
+    "Find customers who haven't placed any orders",
+    "Show total sales by product category",
+    "List employees hired in the last 6 months",
+    "Find orders with amounts greater than $1000",
+    "Show average order value by month",
+    "List products with less than 10 units in stock",
+    "Find customers with more than 5 orders",
+    "Show revenue by quarter for the current year",
+    "List all active products in the Electronics category",
+    "Find orders that haven't shipped yet",
+    "Show customer count by state",
+    "List products that have never been ordered"
   ],
   "sql": [
     "SELECT d.name AS department_name, COUNT(e.id) AS employee_count FROM department d LEFT JOIN employee e ON d.id = e.department_id GROUP BY d.name",
@@ -119,6 +134,21 @@
     "SELECT * FROM customers WHERE city ILIKE 'New York'",
     "SELECT product_name, SUM(quantity) as total_sales FROM products JOIN order_details ON products.product_id = order_details.product_id GROUP BY product_name ORDER BY total_sales DESC LIMIT 5",
     "SELECT TO_CHAR(order_date, 'YYYY-MM') as month, COUNT(*) as order_count FROM orders WHERE EXTRACT(YEAR FROM order_date) = 2023 GROUP BY month ORDER BY month",
-    "SELECT category_name as \"Product Category\", SUM(unit_price * quantity) as \"Revenue\" FROM categories JOIN products ON categories.category_id = products.category_id JOIN order_details ON products.product_id = order_details.product_id GROUP BY category_name"
+    "SELECT category_name as \"Product Category\", SUM(unit_price * quantity) as \"Revenue\" FROM categories JOIN products ON categories.category_id = products.category_id JOIN order_details ON products.product_id = order_details.product_id GROUP BY category_name",
+    "SELECT * FROM customers WHERE state = 'CA'",
+    "SELECT product_name, price FROM products ORDER BY price DESC LIMIT 3",
+    "SELECT COUNT(*) FROM orders WHERE order_date >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month') AND order_date < DATE_TRUNC('month', CURRENT_DATE)",
+    "SELECT c.* FROM customers c LEFT JOIN orders o ON c.customer_id = o.customer_id WHERE o.order_id IS NULL",
+    "SELECT c.category_name, SUM(od.quantity * od.unit_price) AS total_sales FROM categories c JOIN products p ON c.category_id = p.category_id JOIN order_details od ON p.product_id = od.product_id GROUP BY c.category_name",
+    "SELECT * FROM employees WHERE hire_date >= CURRENT_DATE - INTERVAL '6 months' ORDER BY hire_date DESC",
+    "SELECT * FROM orders WHERE total_amount > 1000 ORDER BY total_amount DESC",
+    "SELECT DATE_TRUNC('month', order_date) AS month, AVG(total_amount) AS avg_order_value FROM orders GROUP BY month ORDER BY month",
+    "SELECT product_name, units_in_stock FROM products WHERE units_in_stock < 10 ORDER BY units_in_stock",
+    "SELECT c.customer_id, c.company_name, COUNT(o.order_id) AS order_count FROM customers c JOIN orders o ON c.customer_id = o.customer_id GROUP BY c.customer_id, c.company_name HAVING COUNT(o.order_id) > 5 ORDER BY order_count DESC",
+    "SELECT DATE_TRUNC('quarter', order_date) AS quarter, SUM(total_amount) AS revenue FROM orders WHERE EXTRACT(YEAR FROM order_date) = EXTRACT(YEAR FROM CURRENT_DATE) GROUP BY quarter ORDER BY quarter",
+    "SELECT p.* FROM products p JOIN categories c ON p.category_id = c.category_id WHERE p.discontinued = false AND c.category_name = 'Electronics'",
+    "SELECT * FROM orders WHERE shipped_date IS NULL AND order_date < CURRENT_DATE - INTERVAL '3 days'",
+    "SELECT state, COUNT(*) AS customer_count FROM customers GROUP BY state ORDER BY customer_count DESC",
+    "SELECT p.* FROM products p LEFT JOIN order_details od ON p.product_id = od.product_id WHERE od.order_id IS NULL"
   ]
 }

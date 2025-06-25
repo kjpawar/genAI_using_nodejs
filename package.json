@@ -3,7 +3,9 @@
   "version": "1.0.0",
   "main": "server.js",
   "nodemonConfig": {
-    "ignore": ["schema_cache.json"]
+    "ignore": [
+      "schema_cache.json"
+    ]
   },
   "scripts": {
     "start": "node server.js"
@@ -32,6 +34,7 @@
     "sql-parser": "^0.5.0",
     "textract": "^2.5.0",
     "uuid": "^11.1.0",
+    "ws": "^8.18.2",
     "xlsx": "^0.18.5"
   }
 }
