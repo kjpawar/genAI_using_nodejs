@@ -384,7 +384,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initWebSocket();
 
   // Set up event listeners
-  // sendButton.addEventListener('click', sendMessage);
+  sendButton.addEventListener('click', sendMessage);
   userInput.addEventListener('keypress', (e) => {
     if (e.key === 'Enter') sendMessage();
   });

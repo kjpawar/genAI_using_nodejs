@@ -366,17 +366,57 @@ function suggestChartType(rows) {
     return 'line';
   }
   
-  if (rows.length <= 5) {
+  else if (rows.length <= 5) {
     return 'pie';
   }
   
-  return 'bar';
+  else{
+    return 'bar';
+  }
 }
 
+// function isDateLike(value) {
+//   return /^\d{4}-\d{2}-\d{2}$/.test(value) || 
+//          /^\w+ \d{1,2}, \d{4}$/.test(value) ||
+//          /^\d{1,2}\/\d{1,2}\/\d{4}$/.test(value);
+// }
+
 function isDateLike(value) {
-  return /^\d{4}-\d{2}-\d{2}$/.test(value) || 
-         /^\w+ \d{1,2}, \d{4}$/.test(value) ||
-         /^\d{1,2}\/\d{1,2}\/\d{4}$/.test(value);
+  // If it's already a Date object
+  if (value instanceof Date && !isNaN(value)) return true;
+  
+  // If it's a number that could be a timestamp (in seconds or milliseconds)
+  if (typeof value === 'number' && value > 1000000000 && value < 2000000000000) return true;
+  
+  // If it's a string, check all possible date formats
+  if (typeof value === 'string') {
+    // ISO formats (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS)
+    if (/^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})?)?$/.test(value)) return true;
+    
+    // US formats (MM/DD/YYYY or MM-DD-YYYY)
+    if (/^\d{1,2}[\/-]\d{1,2}[\/-]\d{4}$/.test(value)) return true;
+    
+    // European formats (DD/MM/YYYY or DD-MM-YYYY)
+    if (/^\d{1,2}[\/-]\d{1,2}[\/-]\d{4}$/.test(value)) return true;
+    
+    // Month name formats (January 1, 2022 or Jan 1, 2022)
+    if (/^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]* \d{1,2}, \d{4}$/i.test(value)) return true;
+    
+    // Day-month-year formats (1 Jan 2022)
+    if (/^\d{1,2} (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]* \d{4}$/i.test(value)) return true;
+    
+    // Year-month-day formats (2022 January 1)
+    if (/^\d{4} (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]* \d{1,2}$/i.test(value)) return true;
+    
+    // Just year (YYYY)
+    if (/^\d{4}$/.test(value)) return true;
+    
+    // Unix timestamp strings
+    if (/^\d{10,13}$/.test(value)) return true;
+  }
+  
+  // If none matched
+  return false;
 }
 
 function generateColors(count) {
