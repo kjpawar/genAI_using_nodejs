@@ -145,7 +145,7 @@ app.post("/chat", async (req, res) => {
 async function handleChartRequest(messages, userPrompt) {
   const sqlQuery = await getChatCompletion(messages, true);
   const dbResult = await runSqlQuery(sqlQuery);
-  const suggestedChartType = suggestChartType(dbResult.rows);
+  const suggestedChartType = suggestChartType(dbResult.rows, userPrompt);
   
   const chartData = {
     labels: [],
@@ -360,19 +360,47 @@ function preprocessDocumentName(name) {
     .toLowerCase();
 }
 
-function suggestChartType(rows) {
-  const firstValue = rows[0][0];
+function suggestChartType(rows,userRequest='') {
+  if (userRequest) {
+    const request = userRequest.toLowerCase();
+    if (request.includes('line chart') || request.includes('line graph')) return 'line';
+    if (request.includes('bar chart') || request.includes('bar graph')) return 'bar';
+    if (request.includes('pie chart') || request.includes('pie graph')) return 'pie';
+  }
+  // 2. Check if data contains dates
+  const firstRow = rows[0];
+  const firstValue = firstRow ? firstRow[Object.keys(firstRow)[0]] : null;
+  
   if (isDateLike(firstValue)) {
     return 'line';
   }
   
-  else if (rows.length <= 5) {
+  // 3. Check for time-related keywords in the request
+  if (userRequest) {
+    const timeKeywords = ['time', 'date', 'year', 'month', 'day', 'trend', 'over time', 'timeline'];
+    const isTimeRequest = timeKeywords.some(keyword => userRequest.toLowerCase().includes(keyword));
+    if (isTimeRequest) return 'line';
+  }
+
+  // 4. Small datasets default to pie chart
+  if (rows.length <= 5) {
     return 'pie';
   }
   
-  else{
-    return 'bar';
-  }
+  // 5. Everything else defaults to bar chart
+  return 'bar';
+  // const firstValue = rows[0][0];
+  // if (isDateLike(firstValue)) {
+  //   return 'line';
+  // }
+  
+  // else if (rows.length <= 5) {
+  //   return 'pie';
+  // }
+  
+  // else{
+  //   return 'bar';
+  // }
 }
 
 // function isDateLike(value) {
